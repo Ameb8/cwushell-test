@@ -3,10 +3,10 @@
 ## Status and scope
 
 The development tooling is configured in `Taskfile.yml`, `pyproject.toml`, and
-`uv.lock`. Harness code and meaningful harness tests have not been implemented
-yet. Setup, lint, and formatting commands are available. `task typecheck` exits
-nonzero until Python sources exist, and `task test` exits nonzero until tests
-exist; `task check` propagates those failures.
+`uv.lock`. The CLI skeleton and focused CLI tests are implemented; execution and
+reporting remain pending. All verification commands now have meaningful sources
+and tests to check. The temporary runner validates configuration and exits 1
+without executing a target or writing a report; see the [README](../README.md).
 
 The [harness specification](specs/cwushell-test.md) defines runtime behavior and
 student-shell evidence collection. This guide defines how contributors and agents
@@ -52,7 +52,8 @@ task test
 Tasks run from the repository root, propagate failures, and do not require manual
 virtual-environment activation. Inspect available tasks with `task --list`.
 The project is deliberately unpackaged (`tool.uv.package = false`); no build
-backend or installed CLI is needed before the standalone script exists.
+backend or installed CLI is needed. The executable repository launcher
+`cwushell-test` delegates to the standalone `cwushell_test.py` script.
 
 Use current stable tool releases within the manifest's declared version ranges.
 `uv.lock` pins the resolved versions and hashes for reproducibility; routine
@@ -60,11 +61,11 @@ commands do not update dependencies. To update deliberately, run
 `uv lock --upgrade` followed by `task setup`, review the lockfile changes, and
 run `task check`. Revisit version ranges when adopting a new major tool release.
 
-Once the entry point is implemented, run it with
+Run the skeleton with
 `uv run --locked python cwushell_test.py ./cwushell`.
 Student binaries must still be compiled externally. Runtime fixture observations
 will also require the Linux utilities named in the specification, including
-`printenv`; those utilities are not needed for the current empty suite.
+`printenv`; those utilities are not needed for the current CLI checks.
 
 | Command | Required behavior |
 |---|---|
@@ -157,10 +158,9 @@ controls discovery, not imports: avoid importing those synthetic programs into
 harness code or test modules. Do not place harness implementation under `tests/`.
 
 Run `task typecheck` for type checking alone, or `task check` for all verification.
-With no Python files yet, mypy reports that there are no files to check and returns
-nonzero. This is an incomplete state; do not add dummy source files or suppress
-that failure. Ruff continues to handle linting and formatting; annotation rules
-are enforced by mypy rather than enabling Ruff's `ANN` rules.
+Do not add dummy source files or suppress empty-suite failures. Ruff handles
+linting and formatting; annotation rules are enforced by mypy rather than
+enabling Ruff's `ANN` rules.
 
 See the official [mypy configuration reference](https://mypy.readthedocs.io/en/stable/config_file.html)
 for annotation requirements and per-module overrides.
@@ -186,9 +186,7 @@ Actions, requires branches to be up to date before merging, and applies to
 administrators too. This is repository configuration, separate from the workflow
 file; forks must configure their own branch protection to enforce the same gate.
 
-CI currently fails type checking because no Python sources exist and pytest
-because no tests are collected. These failures remain visible until meaningful
-implementation and tests are added.
+The CLI skeleton and tests run in these checks without student binaries.
 
 Keep student binaries and generated evidence out of version control. The default
 report, root `cwushell` binary, `reports/`, and `transcripts/` are ignored. Put

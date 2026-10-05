@@ -2,7 +2,12 @@
 
 Add meaningful `test_*.py` tests here as harness behavior is implemented. Run the
 complete suite with `task test`, or select tests with `task test -- -k cleanup`.
-There are no harness tests yet; pytest's empty-suite exit remains nonzero.
+The CLI checks are in `test_cli.py`; run them with
+`task test -- tests/test_cli.py`. They cover both entry points, defaults and paths
+with spaces, syntax errors, invalid targets, environment validation, and the
+temporary runner's absence of execution or report writes. Platform and Python
+version rejection are unit-tested by substituting environment values; real CLI
+subprocess checks run on Linux with the configured Python interpreter.
 
 Use pytest fixtures and plain assertions. Mark real PTY tests with
 `@pytest.mark.integration`; these tests still run in the default suite. Synthetic

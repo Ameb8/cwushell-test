@@ -16,7 +16,7 @@ dev = [
 ]
 
 [tool.uv]
-# The planned entry point is a standalone script, not an installable package.
+# The entry point is a standalone script with a repository launcher.
 package = false
 
 [tool.pytest.ini_options]
