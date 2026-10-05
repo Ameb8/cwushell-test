@@ -11,7 +11,7 @@ exist; `task check` propagates those failures.
 The [harness specification](specs/cwushell-test.md) defines runtime behavior and
 student-shell evidence collection. This guide defines how contributors and agents
 develop and verify the harness itself. Keep lasting conventions here; use
-implementation issues to track the remaining program and CI work.
+implementation issues to track the remaining program work.
 
 ## Toolchain and dependencies
 
@@ -171,9 +171,24 @@ Add meaningful tests alongside each harness behavior; do not add placeholder
 tests or suppress empty-suite failures. The test structure and integration-test
 conventions are documented in [tests/README.md](../tests/README.md).
 
-Add required CI checks alongside the first tested implementation slice. CI should
-run the same Task commands on Linux with Python 3.14. No GitHub Actions workflow
-is configured yet.
+## Continuous integration
+
+[The CI workflow](../.github/workflows/ci.yml) runs on pull requests targeting
+`main`, pushes to `main` (including merges), and merge queues.
+It installs Task v3 and uv on Linux, installs Python from `.python-version`, and
+runs `task setup` with the committed lockfile. It then runs `task lint`,
+`task format:check`, `task typecheck`, and `task test`. Each check runs even if an
+earlier check fails; any failure fails the `checks` job. Formatting is checked
+without modifying files, and student binaries are not required.
+
+GitHub branch protection for `main` requires the `checks` status check from GitHub
+Actions, requires branches to be up to date before merging, and applies to
+administrators too. This is repository configuration, separate from the workflow
+file; forks must configure their own branch protection to enforce the same gate.
+
+CI currently fails type checking because no Python sources exist and pytest
+because no tests are collected. These failures remain visible until meaningful
+implementation and tests are added.
 
 Keep student binaries and generated evidence out of version control. The default
 report, root `cwushell` binary, `reports/`, and `transcripts/` are ignored. Put
