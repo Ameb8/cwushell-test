@@ -274,8 +274,8 @@ def run_session(
         raise ValueError("timeout must be positive and finite")
     if not math.isfinite(total) or total <= 0:
         raise ValueError("session timeout must be positive and finite")
-    if max_output_bytes <= 0:
-        raise ValueError("capture limit must be positive")
+    if not isinstance(max_output_bytes, int) or max_output_bytes <= 0:
+        raise ValueError("capture limit must be a positive integer")
     if not initial_prompt or any(command.prompt == "" for command in plan):
         raise ValueError("expected prompts must be nonempty literals")
     if any("\n" in command.text or "\r" in command.text for command in plan):

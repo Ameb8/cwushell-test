@@ -291,6 +291,7 @@ def test_cleaning_preserves_meaningful_text(raw, expected):
         {"session_timeout": float("inf")},
         {"session_timeout": 0},
         {"max_output_bytes": 0},
+        {"max_output_bytes": 1.5},
         {"initial_prompt": ""},
         {"commands": [Command("one\ntwo")]},
         {"commands": [Command("x", "")]},
@@ -497,3 +498,65 @@ def test_exception_after_observed_exit_retains_status(monkeypatch, owned_session
     assert result.signal_status is None
     assert result.cleanup_signal_status is None
     assert_released(result, owned_sessions)
+
+
+@pytest.mark.parametrize("fault", ["blocked_dispatch", "ignored_exit"])
+def test_dispatch_and_expected_exit_faults_are_contained(fault, owned_sessions):
+    before = len(list(Path("/proc/self/fd").iterdir()))
+    blocked_line = "x" * (128 * 1024)
+    for _ in range(2):
+        plan = (
+            [Command("stop_reading"), Command(blocked_line), Command("never")]
+            if fault == "blocked_dispatch"
+            else [Command("exit", None), Command("never")]
+        )
+        result = run_session(
+            SHELL,
+            plan,
+            timeout=0.2,
+            session_timeout=0.5,
+            max_output_bytes=128,
+            environment={
+                **os.environ,
+                "MOCK_MODE": "ignore_exit" if fault == "ignored_exit" else "normal",
+            },
+        )
+        assert result.reason == "TIMEOUT"
+        assert result.interactions[-1].reason == "TIMEOUT"
+        if fault == "blocked_dispatch":
+            assert result.interactions[-1].waiting_for == "command dispatch"
+            assert result.dispatched == ["stop_reading"]
+            assert result.undispatched == [blocked_line, "never"]
+            assert "not reading\n" in result.output
+            assert "x" not in result.output  # Raw input still has echo disabled.
+        else:
+            assert result.interactions[-1].waiting_for == "EOF"
+            assert result.dispatched == ["exit"]
+            assert result.undispatched == ["never"]
+            assert "exit ignored\ncwushell>" in result.output
+        assert result.exit_status is None
+        assert result.signal_status is None
+        assert result.cleanup_signal_status == signal.SIGTERM
+        assert result.cleanup_error is None
+        assert result.interaction_seconds <= 0.5 + SCHEDULING_TOLERANCE
+        assert result.cleanup_seconds <= 2 * pty.CLEANUP_GRACE + SCHEDULING_TOLERANCE
+        assert not group_members(result.pgid)
+        assert_released(result, owned_sessions)
+
+        fresh = run_session(
+            SHELL,
+            [Command("prompt recovered>", "recovered>"), Command("exit", None)],
+            timeout=1,
+        )
+        assert fresh.reason == "EOF"
+        assert fresh.exit_status == 42
+        assert [event.reason for event in fresh.interactions] == [
+            "PROMPT",
+            "PROMPT",
+            "EOF",
+        ]
+        assert "prompt recovered>" not in fresh.output
+        assert fresh.pid != result.pid
+        assert fresh.working_directory != result.working_directory
+        assert_released(fresh, owned_sessions)
+    assert len(list(Path("/proc/self/fd").iterdir())) == before

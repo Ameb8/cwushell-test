@@ -69,7 +69,9 @@ strings consume constant state.
 `dispatched` contains fully sent lines; a dispatch timeout can have sent a partial
 line, which remains in `undispatched` and is identified by its interaction event.
 `error` describes execution exceptions. Invalid limits, empty prompts, and
-multiline inputs raise `ValueError` before spawning. Other exceptions return
+multiline inputs raise `ValueError` before spawning. Capture limits must be
+positive integers; fractional limits are rejected before launching a process.
+Other exceptions return
 error evidence; interruption propagates after cleanup. Observed `exit_status`
 and `signal_status` are sampled before cleanup, so a cleanup signal is never
 presented as an observed crash. After EOF, nonblocking status polls get at most
@@ -122,6 +124,8 @@ consume both cleanup grace periods even after all live members have died. The
 tests verify no live owned group members remain; a test-only Linux subreaper
 adopts and reaps the synthetic orphans to avoid depending on the host's PID 1.
 The production helper does not install a subreaper or implement a general sandbox.
+This is the precise containment guarantee for #2; group termination must not be
+described as arbitrary process-tree containment or reaping every descendant.
 
 ## Focused verification
 
@@ -212,3 +216,40 @@ reaped it after measurement. The test-side subreaper was enabled for measurement
 as in the integration fixtures. These measurements are examples with scheduling
 variation; the automated tests enforce the allowances, independently of the
 launch duration.
+
+## Combined chunk verification (#2)
+
+The interaction and lifecycle implementations are both present in
+`pty_session.py`. The combined Linux tests exercise their public `run_session`
+interface together, without requiring suites or reporting to be implemented.
+
+| Integrated acceptance criterion | Evidence |
+|---|---|
+| Changed prompts and expected exit complete normally | `test_initial_changed_reset_prompts_and_expected_eof`; each recovery session in the dispatch/exit fault check changes its prompt and exits 42 |
+| Hangs, crashes, and child spawning allow a fresh session | `test_fault_group_cleanup_and_fresh_session`, `test_crash_does_not_prevent_fresh_session`, and `test_dispatch_and_expected_exit_faults_are_contained` |
+| No local echo; meaningful cleaned student output remains | Pacing and ANSI tests; dispatch/exit fault check verifies retained diagnostics and no echoed blocked input |
+| Cleanup after EOF, deadlines, interaction failures, and exceptions; no accumulation | Fault-group and exception checks, repeated descriptor counts, direct-child release assertions, and `/proc` live-group inspection |
+| Observed exits and crash signals stay separate from harness cleanup | Fault-group status assertions, exception-after-exit check, and dispatch/exit fault check's separate cleanup signal |
+| Both child contracts verified together on Linux | `task test -- tests/test_pty_session.py` runs all #6/#7 checks; `task check` includes these plus CLI, formatting, lint, and type checks |
+
+The `stop_reading` fixture command switches to raw terminal input, reports its
+next prompt, and then stops reading. This allows a 128 KiB command to saturate
+the real PTY input buffer rather than being discarded by canonical line limits.
+The test verifies a bounded **dispatch** timeout, retaining the partially sent
+line in `undispatched`. `MOCK_MODE=ignore_exit` prints a diagnostic and another
+prompt after `exit`; the helper must continue waiting for the requested EOF and
+record a timeout. Both faults run twice, with a fresh prompt-change/exit session
+after each, and leave descriptor counts unchanged.
+
+A combined verification run on Linux / Python 3.14.6 used `timeout=0.2`,
+`session_timeout=0.5`, and a 128-byte capture limit:
+
+| Fault | Launch | Interaction | Cleanup | Wait that expired | Subsequent session |
+|---|---:|---:|---:|---|---|
+| Blocked command dispatch | 0.797 s | 0.354 s | 0.011 s | command dispatch | changed prompt, EOF, exit 42 |
+| Ignored expected exit | 0.781 s | 0.355 s | 0.011 s | EOF | changed prompt, EOF, exit 42 |
+
+Launch, interaction, and cleanup are measured separately. The tests enforce the
+0.5-second total interaction allowance and the separate 0.4-second cleanup
+allowance, each with the documented 0.25-second scheduling tolerance. These
+measurements do not extend the containment scope to detached descendants.

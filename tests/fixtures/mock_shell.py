@@ -6,6 +6,7 @@ import select
 import signal
 import sys
 import time
+import tty
 
 mode = os.environ.get("MOCK_MODE", "normal")
 prompt = "cwushell>"
@@ -83,7 +84,19 @@ for line in input_lines():
         emit("ignoring TERM\n")
         while True:
             signal.pause()
+    if command == "stop_reading":
+        # Raw input prevents the canonical line discipline from discarding an
+        # overlong line, so unread input eventually fills the real PTY buffer.
+        tty.setraw(0)
+        emit("not reading\n")
+        show_prompt()
+        while True:
+            signal.pause()
     if command == "exit":
+        if mode == "ignore_exit":
+            emit("exit ignored\n")
+            show_prompt()
+            continue
         emit("goodbye\n")
         sys.exit(42)
     if command == "close_tty":
