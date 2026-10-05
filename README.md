@@ -12,8 +12,10 @@ Passing all test cases does not guarantee that a submission is implemented fully
 
 ## Development
 
-The CLI skeleton is implemented; student-shell execution and Markdown reporting
-are still pending. Use Linux and Python 3.14+, as required by the current
+The CLI skeleton and bounded PTY interaction helper are implemented. Suite
+execution and Markdown reporting are still pending. The helper interface and
+focused fixture checks are documented in [docs/pty-session.md](docs/pty-session.md). Use Linux and Python 3.14+, as
+required by the current
 [canonical specification](docs/specs/cwushell-test.md). The original issue's
 Python 3.8 target predates that requirement.
 

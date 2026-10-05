@@ -28,3 +28,9 @@ process group or session unless the test explicitly owns and cleans them up.
 
 See [development conventions](../docs/development.md) and the
 [harness specification](../docs/specs/cwushell-test.md) for required coverage.
+
+The bounded PTY contract checks are in `test_pty_session.py`. Run
+`task test -- tests/test_pty_session.py`; see the [helper interface and measured
+bounds](../docs/pty-session.md) for fixture modes, evidence fields, and the
+acceptance-criteria mapping. These Linux checks use the executable
+`fixtures/mock_shell.py` independently of suites or scoring.
