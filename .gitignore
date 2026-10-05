@@ -4,7 +4,7 @@ __pycache__/
 *$py.class
 
 # Virtual environments
-.venv/
+.venv*/
 venv/
 env/
 
@@ -30,3 +30,9 @@ build/
 
 # Assignment specification & materials
 assignment/
+
+# Local student binary and generated evidence
+/cwushell
+/cwushell_test_report.md
+/reports/
+/transcripts/

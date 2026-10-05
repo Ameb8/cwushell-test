@@ -1,0 +1,52 @@
+version: '3'
+
+tasks:
+  default:
+    desc: List available development tasks
+    cmds:
+      - task --list
+
+  setup:
+    desc: Synchronize the locked development environment
+    dir: '{{.ROOT_DIR}}'
+    cmds:
+      - uv sync --locked
+
+  test:
+    desc: Run all harness tests (forward pytest arguments after --)
+    dir: '{{.ROOT_DIR}}'
+    cmds:
+      - uv run --locked pytest {{.CLI_ARGS}}
+
+  lint:
+    desc: Check Python lint and import ordering without modifying files
+    dir: '{{.ROOT_DIR}}'
+    cmds:
+      - uv run --locked ruff check .
+
+  format:
+    desc: Format Python files in place
+    dir: '{{.ROOT_DIR}}'
+    cmds:
+      - uv run --locked ruff format .
+
+  format:check:
+    desc: Check Python formatting without modifying files
+    dir: '{{.ROOT_DIR}}'
+    cmds:
+      - uv run --locked ruff format --check .
+
+  typecheck:
+    desc: Check types and require annotations on harness functions
+    dir: '{{.ROOT_DIR}}'
+    cmds:
+      - uv run --locked mypy .
+
+  check:
+    desc: Run lint, formatting, type checks, and the full test suite in sequence
+    dir: '{{.ROOT_DIR}}'
+    cmds:
+      - task: lint
+      - task: format:check
+      - task: typecheck
+      - task: test
