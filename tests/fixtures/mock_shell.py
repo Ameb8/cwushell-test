@@ -3,6 +3,7 @@
 
 import os
 import select
+import signal
 import sys
 import time
 
@@ -49,6 +50,39 @@ def input_lines():
 
 for line in input_lines():
     command = line.rstrip("\n")
+    if command.startswith("child_"):
+        ready_read, ready_write = os.pipe()
+        descendant = os.fork()
+        if descendant == 0:
+            os.close(ready_read)
+            signal.signal(signal.SIGHUP, signal.SIG_IGN)
+            if command.endswith("resist"):
+                signal.signal(signal.SIGTERM, signal.SIG_IGN)
+            if "_tty" not in command:
+                for descriptor in (0, 1, 2):
+                    os.close(descriptor)
+            os.write(ready_write, b"ready")
+            os.close(ready_write)
+            while True:
+                signal.pause()
+        os.close(ready_write)
+        os.read(ready_read, 5)
+        os.close(ready_read)
+        emit(f"member {descendant} group {os.getpgid(descendant)}\n")
+        if command.startswith("child_exit"):
+            sys.exit(23)
+        if command.startswith("child_crash"):
+            os.kill(os.getpid(), signal.SIGSEGV)
+        if command.startswith("child_hang"):
+            while True:
+                signal.pause()
+        show_prompt()
+        continue
+    if command == "resist":
+        signal.signal(signal.SIGTERM, signal.SIG_IGN)
+        emit("ignoring TERM\n")
+        while True:
+            signal.pause()
     if command == "exit":
         emit("goodbye\n")
         sys.exit(42)

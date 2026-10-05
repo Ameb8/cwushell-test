@@ -1,7 +1,10 @@
 """Real Linux PTY contract checks independent of suites and scoring."""
 
+import ctypes
 import os
+import re
 import signal
+import sys
 import time
 from pathlib import Path
 
@@ -19,6 +22,12 @@ SCHEDULING_TOLERANCE = 0.25
 @pytest.fixture(autouse=True)
 def owned_sessions(monkeypatch):
     """Test-side containment still runs after assertions or outer timeout failures."""
+    # Test-only subreaper owns orphaned fixture descendants, even on hosts whose
+    # PID 1 does not reap zombies. Production does not adopt arbitrary children.
+    libc = ctypes.CDLL(None, use_errno=True)
+    previous = ctypes.c_int()
+    assert libc.prctl(37, ctypes.byref(previous), 0, 0, 0) == 0
+    assert libc.prctl(36, 1, 0, 0, 0) == 0
     children = []
     spawn = pty.pexpect.spawn
 
@@ -31,13 +40,43 @@ def owned_sessions(monkeypatch):
     try:
         yield children
     finally:
-        for child in children:
-            try:
+        try:
+            for child in children:
                 assert child.pid is not None
-                os.killpg(child.pid, signal.SIGKILL)
-            except ProcessLookupError:
-                pass
-            child.close(force=True)
+                assert child.pid != os.getpgrp()
+                try:
+                    os.killpg(child.pid, signal.SIGKILL)
+                except ProcessLookupError:
+                    pass
+                child.close(force=True)
+                deadline = time.monotonic() + 1
+                while time.monotonic() < deadline:
+                    members = group_members(child.pid)
+                    if not members:
+                        break
+                    for pid in members:
+                        try:
+                            os.waitpid(pid, os.WNOHANG)
+                        except ChildProcessError:
+                            pass
+                    time.sleep(0.01)
+                assert not group_members(child.pid)
+        finally:
+            assert libc.prctl(36, previous.value, 0, 0, 0) == 0
+
+
+def group_members(pgid):
+    members = {}
+    for entry in Path("/proc").iterdir():
+        if not entry.name.isdigit():
+            continue
+        try:
+            fields = (entry / "stat").read_text().rsplit(")", 1)[1].split()
+        except FileNotFoundError:
+            continue
+        if int(fields[2]) == pgid:
+            members[int(entry.name)] = fields[0]
+    return members
 
 
 def assert_released(result, children):
@@ -47,6 +86,9 @@ def assert_released(result, children):
     child = children[-1]
     assert child.closed
     assert child.child_fd == -1
+    assert result.direct_child_reaped
+    with pytest.raises(ChildProcessError):
+        os.waitpid(result.pid, os.WNOHANG)
     assert not Path(result.working_directory).exists()
 
 
@@ -316,3 +358,142 @@ def test_pacing_fixture_detects_deliberate_interleaving(tmp_path):
     child.expect_exact(b"cwushell>", timeout=1)
     child.send(b"paced\nhello\n")
     child.expect_exact(b"INTERLEAVED", timeout=1)
+
+
+@pytest.mark.parametrize(
+    "command, reason, status, death, forced",
+    [
+        ("child_exit", "EOF", 23, None, False),
+        ("child_exit_resist", "EOF", 23, None, True),
+        ("child_exit_tty_resist", "TIMEOUT", 23, None, True),
+        ("child_crash_resist", "EOF", None, signal.SIGSEGV, True),
+        ("child_hang_resist", "TIMEOUT", None, None, True),
+        ("child_ready_resist", "COMPLETED", None, None, True),
+        ("resist", "TIMEOUT", None, None, True),
+    ],
+)
+def test_fault_group_cleanup_and_fresh_session(
+    command, reason, status, death, forced, owned_sessions
+):
+    before = len(list(Path("/proc/self/fd").iterdir()))
+    for _ in range(2):
+        result = run_session(
+            SHELL,
+            [Command(command, None if reason == "EOF" else "cwushell>")],
+            timeout=0.3,
+        )
+        assert result.reason == reason
+        assert result.exit_status == status
+        assert result.signal_status == death
+        assert result.pgid == result.pid
+        assert result.pgid != os.getpgrp()
+        assert result.cleanup_error is None
+        assert "SIGTERM" in result.cleanup_actions
+        if forced:
+            assert "SIGKILL" in result.cleanup_actions
+        if status is not None or death is not None:
+            assert result.cleanup_exit_status is None
+            assert result.cleanup_signal_status is None
+        else:
+            assert result.cleanup_signal_status in (signal.SIGTERM, signal.SIGKILL)
+        assert result.cleanup_seconds <= 2 * pty.CLEANUP_GRACE + SCHEDULING_TOLERANCE
+        assert result.interaction_seconds <= 0.6 + SCHEDULING_TOLERANCE
+        members = re.search(r"member (\d+) group (\d+)", result.output)
+        if command.startswith("child_"):
+            assert members is not None
+            assert int(members[2]) == result.pgid
+        assert all(state == "Z" for state in group_members(result.pgid).values())
+        assert_released(result, owned_sessions)
+        saved = (
+            list(result.cleanup_actions),
+            result.cleanup_seconds,
+            result.exit_status,
+            result.signal_status,
+        )
+        pty._cleanup(owned_sessions[-1], result)
+        owned_sessions[-1].close()
+        assert (
+            result.cleanup_actions,
+            result.cleanup_seconds,
+            result.exit_status,
+            result.signal_status,
+        ) == saved
+        fresh = run_session(SHELL, [Command("exit", None)], timeout=1)
+        assert fresh.exit_status == 42
+        assert fresh.reason == "EOF"
+        assert_released(fresh, owned_sessions)
+    assert len(list(Path("/proc/self/fd").iterdir())) == before
+
+
+def test_exception_with_surviving_group_member(monkeypatch, owned_sessions):
+    wait = pty._Reader.wait
+
+    def broken_after_ready(self, prompt, deadline):
+        event = wait(self, prompt, deadline)
+        if self.evidence.interactions:
+            raise RuntimeError("fault after descendant ready")
+        return event
+
+    monkeypatch.setattr(pty._Reader, "wait", broken_after_ready)
+    result = run_session(SHELL, [Command("child_ready_resist")], timeout=1)
+    assert result.reason == "ERROR"
+    assert result.cleanup_actions == ["SIGTERM", "SIGKILL"]
+    assert result.exit_status is None
+    assert result.signal_status is None
+    assert result.cleanup_error is None
+    assert all(state == "Z" for state in group_members(result.pgid).values())
+    assert_released(result, owned_sessions)
+    monkeypatch.setattr(pty._Reader, "wait", wait)
+    assert run_session(SHELL, [Command("exit", None)], timeout=1).exit_status == 42
+
+
+@pytest.mark.parametrize("unrelated", [False, True])
+def test_unverified_group_never_signaled(monkeypatch, owned_sessions, unrelated):
+    sentinel = None
+    unowned_pgid = os.getpgrp()
+    if unrelated:
+        sentinel = pty.pexpect.spawn(
+            sys.executable, ["-c", "import signal; signal.pause()"]
+        )
+        assert sentinel.pid is not None
+        unowned_pgid = sentinel.pid
+    calls = []
+    killpg = os.killpg
+
+    def record_group(pgid, sig):
+        calls.append(pgid)
+        return killpg(pgid, sig)
+
+    monkeypatch.setattr(pty.os, "getpgid", lambda pid: unowned_pgid)
+    monkeypatch.setattr(pty.os, "killpg", record_group)
+    result = run_session(SHELL, timeout=1)
+    assert result.reason == "ERROR"
+    assert result.pgid is None
+    assert calls == []
+    if sentinel is not None:
+        assert sentinel.isalive()
+    assert result.cleanup_error is None
+    assert_released(result, owned_sessions)
+    monkeypatch.undo()
+    assert run_session(SHELL, [Command("exit", None)], timeout=1).exit_status == 42
+
+
+def test_exception_after_observed_exit_retains_status(monkeypatch, owned_sessions):
+    wait = pty._Reader.wait
+
+    def broken_after_exit(self, prompt, deadline):
+        event = wait(self, prompt, deadline)
+        if event == "EOF":
+            deadline = time.monotonic() + 0.2
+            while self.child.isalive() and time.monotonic() < deadline:
+                time.sleep(0.001)
+            raise RuntimeError("fault after observed exit")
+        return event
+
+    monkeypatch.setattr(pty._Reader, "wait", broken_after_exit)
+    result = run_session(SHELL, [Command("exit", None)], timeout=1)
+    assert result.reason == "ERROR"
+    assert result.exit_status == 42
+    assert result.signal_status is None
+    assert result.cleanup_signal_status is None
+    assert_released(result, owned_sessions)

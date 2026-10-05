@@ -60,6 +60,11 @@ class Evidence:
     signal_status: int | None = None
     cleanup_actions: list[str] = field(default_factory=list)
     pid: int | None = None
+    pgid: int | None = None
+    cleanup_exit_status: int | None = None
+    cleanup_signal_status: int | None = None
+    direct_child_reaped: bool = False
+    cleanup_error: str | None = None
     working_directory: str = ""
     launch_seconds: float = 0.0
     interaction_seconds: float = 0.0
@@ -176,33 +181,71 @@ def _dispatch(child: pexpect.spawn, text: str, deadline: float) -> bool:
 
 
 def _cleanup(child: pexpect.spawn, evidence: Evidence) -> None:
-    """Bounded basic group cleanup; never signal the harness's process group."""
+    """Terminate only the verified group, reap the direct child, close the PTY.
+
+    Group existence includes zombies; only their parents can reap them. Never
+    infer group disappearance from the leader's status or add launch hooks.
+    """
+    if child.closed:
+        return
     started = time.monotonic()
-    # pexpect's forkpty child is a session/group leader, not a preexec setpgrp.
-    pgid = child.pid
-    assert pgid is not None
-    for sig in (signal.SIGTERM, signal.SIGKILL):
-        try:
-            os.killpg(pgid, sig)
-            evidence.cleanup_actions.append(sig.name)
-        except ProcessLookupError:
-            break
-        deadline = time.monotonic() + CLEANUP_GRACE
-        while time.monotonic() < deadline:
-            child.isalive()  # nonblocking waitpid also reaps the direct child
-            try:
-                os.killpg(pgid, 0)
-            except ProcessLookupError:
-                break
-            time.sleep(min(POLL_INTERVAL, max(0.0, deadline - time.monotonic())))
-    # Disable ptyprocess's implicit sleeps; escalation above owns the grace budget.
-    # types-pexpect omits the runtime ptyproc attribute.
-    child.ptyproc.delayafterclose = 0  # type: ignore[attr-defined]
-    child.ptyproc.delayafterterminate = 0  # type: ignore[attr-defined]
     try:
-        child.close(force=True)
+        # Snapshot even after exceptions, before any harness termination action.
+        if not child.isalive():
+            evidence.exit_status = child.exitstatus
+            evidence.signal_status = child.signalstatus
+        pgid = evidence.pgid
+        if pgid is not None and pgid == child.pid and pgid != os.getpgrp():
+            for sig in (signal.SIGTERM, signal.SIGKILL):
+                try:
+                    os.killpg(pgid, sig)
+                    evidence.cleanup_actions.append(sig.name)
+                except ProcessLookupError:
+                    break
+                deadline = time.monotonic() + CLEANUP_GRACE
+                while time.monotonic() < deadline:
+                    child.isalive()  # WNOHANG reaps only our direct child.
+                    try:
+                        os.killpg(pgid, 0)
+                    except ProcessLookupError:
+                        break
+                    time.sleep(
+                        min(POLL_INTERVAL, max(0.0, deadline - time.monotonic()))
+                    )
+        else:
+            # Ownership failure must never target the unverified group. The
+            # still-waitable direct child is safe to signal by PID instead.
+            for sig in (signal.SIGTERM, signal.SIGKILL):
+                if not child.isalive():
+                    break
+                child.kill(sig)
+                evidence.cleanup_actions.append(f"DIRECT_CHILD_{sig.name}")
+                deadline = time.monotonic() + CLEANUP_GRACE
+                while child.isalive() and time.monotonic() < deadline:
+                    time.sleep(
+                        min(POLL_INTERVAL, max(0.0, deadline - time.monotonic()))
+                    )
+        evidence.direct_child_reaped = not child.isalive()
+        if evidence.exit_status is None and evidence.signal_status is None:
+            evidence.cleanup_exit_status = child.exitstatus
+            evidence.cleanup_signal_status = child.signalstatus
+        if not evidence.direct_child_reaped:
+            evidence.cleanup_error = "Direct child still live after cleanup deadline"
+    except Exception as exc:
+        evidence.cleanup_error = f"{type(exc).__name__}: {exc}"
     finally:
-        evidence.cleanup_seconds = time.monotonic() - started
+        # pexpect.close() may inject unrecorded HUP/CONT/INT and implicit sleeps.
+        # Close its owned file object directly; group escalation owns termination.
+        # types-pexpect omits the runtime ptyproc attribute.
+        process = child.ptyproc  # type: ignore[attr-defined]
+        try:
+            process.fileobj.close()
+        finally:
+            process.fd = -1
+            process.closed = True
+            child.child_fd = -1
+            child.closed = True
+            evidence.cleanup_seconds = time.monotonic() - started
 
 
 def run_session(
@@ -261,8 +304,13 @@ def run_session(
             session_deadline = interaction_started + total
             evidence.pid = child.pid
             assert child.pid is not None
-            if os.getpgid(child.pid) != child.pid:
+            if (
+                os.getpgid(child.pid) != child.pid
+                or os.getsid(child.pid) != child.pid
+                or child.pid == os.getpgrp()
+            ):
                 raise RuntimeError("PTY launcher did not create an owned process group")
+            evidence.pgid = child.pid
             child.setecho(False)
             os.set_blocking(child.child_fd, False)
             reader = _Reader(child, evidence)

@@ -34,3 +34,11 @@ The bounded PTY contract checks are in `test_pty_session.py`. Run
 bounds](../docs/pty-session.md) for fixture modes, evidence fields, and the
 acceptance-criteria mapping. These Linux checks use the executable
 `fixtures/mock_shell.py` independently of suites or scoring.
+
+Lifecycle checks also fork synthetic descendants, verify the actual process
+group through `/proc`, exercise TERM/KILL escalation after the leader exits,
+and check direct-child reaping and fresh sessions after faults. The test-side
+containment fixture temporarily enables Linux child-subreaper mode and reaps only
+owned fixture groups; it restores the previous setting afterward. This avoids
+accumulating orphan zombies on hosts with a non-reaping PID 1 and is deliberately
+absent from the production helper.
