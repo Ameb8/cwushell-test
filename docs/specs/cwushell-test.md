@@ -4,6 +4,10 @@
 **Target Assignment:** Lab 1 (`cwushell` Mini Shell)  
 **Document Status:** Final Specification  
 
+**Development conventions:** [Tooling, harness tests, and contributor commands](../development.md).
+These conventions govern development of the harness; the requirements below
+govern its runtime behavior and student-shell evidence collection.
+
 ---
 
 ## 1. Overview and Objectives
@@ -25,7 +29,7 @@ The program does not score implementations or determine whether their stdout is 
 1. **Target Platform:** Linux environment (native Linux host, VM, or WSL). The harness relies on standard Linux kernel behaviors and virtual filesystems (e.g., `/proc/cpuinfo`, `/proc/meminfo`) expected by the assignment.
 2. **Pre-Built Binaries:** The harness tests an already compiled binary executable named `cwushell`. The path to the binary can be passed via command-line argument (defaulting to `./cwushell`). Build system operations (e.g., `make`, `gcc`) are handled externally prior to running this harness.
 3. **Dependencies:**
-   - Python 3.8+ (including the standard-library `argparse` module for CLI parsing)
+   - Python 3.14+ (including the standard-library `argparse` module for CLI parsing)
    - `pexpect` library (terminal interaction wrapper over POSIX pseudo-terminals)
 
 4. **Temporary Working Directory:** Each independent test session runs in a fresh temporary working directory created with `tempfile.TemporaryDirectory`. Populate it with a fixed set of known fixture files for external-command scenarios, and record those fixtures in the report. Resolve the target binary and report output paths relative to the invocation directory before spawning the shell; execute the binary by its absolute path. Use consistent terminal settings and explicitly controlled environment values where needed for repeatable interactions. Clean up the temporary directory after process cleanup, including on timeout or exception.
