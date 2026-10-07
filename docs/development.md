@@ -52,9 +52,19 @@ task test
 `task setup` installs runtime and development dependencies into `.venv/`.
 Tasks run from the repository root, propagate failures, and do not require manual
 virtual-environment activation. Inspect available tasks with `task --list`.
-The project is deliberately unpackaged (`tool.uv.package = false`); no build
-backend or installed CLI is needed. The executable repository launcher
-`cwushell-test` delegates to the standalone `cwushell_test.py` script.
+The project uses the [uv build backend](https://docs.astral.sh/uv/concepts/build-backend/)
+and a `src/` package layout. `task setup` installs `src/cwushell_test/` in editable
+mode and creates the `cwushell-test` console command from
+`cwushell_test.cli:main`. `python -m cwushell_test` reaches the same entry point
+through `__main__.py`. Keep `__init__.py` free of execution side effects.
+
+Harness modules belong under `src/cwushell_test/`; tests belong under `tests/`.
+Pytest imports the installed package without adding the repository or `src/`
+to `pythonpath`. This ensures subprocess checks can exercise both installed
+entry points from temporary directories outside the checkout. Use `uv build`
+to produce a source distribution and wheel when needed; keep `dist/` ignored.
+Mypy uses `src/` as its source root; the package's `py.typed` marker makes its
+annotations available to installed consumers as well.
 
 Use current stable tool releases within the manifest's declared version ranges.
 `uv.lock` pins the resolved versions and hashes for reproducibility; routine
@@ -63,7 +73,8 @@ commands do not update dependencies. To update deliberately, run
 run `task check`. Revisit version ranges when adopting a new major tool release.
 
 Run the skeleton with
-`uv run --locked python cwushell_test.py ./cwushell`.
+`uv run --locked python -m cwushell_test ./cwushell` or
+`uv run --locked cwushell-test ./cwushell`.
 Student binaries must still be compiled externally. Runtime fixture observations
 will also require the Linux utilities named in the specification, including
 `printenv`; those utilities are not needed for the current CLI checks.
@@ -94,8 +105,8 @@ Use pytest as the sole test runner. Prefer function-based tests, plain `assert`
 statements, pytest fixtures, and parametrization. Standard-library helpers such as
 `unittest.mock` remain available; do not introduce a separate `unittest` runner.
 Place tests under `tests/` with descriptive `test_*.py` filenames, and configure
-pytest discovery with `testpaths = ["tests"]` so it does not collect the planned
-`cwushell_test.py` entry point as a test module.
+pytest discovery with `testpaths = ["tests"]` so application modules under
+`src/` are not collected as tests.
 
 Test observable harness behavior. Unit tests cover CLI validation, scenario
 definitions, output normalization, capture limits, and Markdown reporting. Linux

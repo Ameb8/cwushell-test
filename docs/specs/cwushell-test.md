@@ -32,6 +32,9 @@ The program does not score implementations or determine whether their stdout is 
    - Python 3.14+ (including the standard-library `argparse` module for CLI parsing)
    - `pexpect` library (terminal interaction wrapper over POSIX pseudo-terminals)
 
+   Install the `cwushell-test` Python package in the execution environment before
+   invoking it. Development setup uses `task setup`; see the development conventions.
+
 4. **Temporary Working Directory:** Each independent test session runs in a fresh temporary working directory created with `tempfile.TemporaryDirectory`. Populate it with a fixed set of known fixture files for external-command scenarios, and record those fixtures in the report. Resolve the target binary and report output paths relative to the invocation directory before spawning the shell; execute the binary by its absolute path. Use consistent terminal settings and explicitly controlled environment values where needed for repeatable interactions. Clean up the temporary directory after process cleanup, including on timeout or exception.
 
 ---
@@ -44,7 +47,7 @@ The CLI must use Python’s standard-library `argparse`, including generated hel
 ```bash
 cwushell-test [-h] [-o OUTPUT] [--timeout SECONDS] [--max-output-bytes BYTES] [target]
 ```
-*(or via Python: `python3 cwushell_test.py [-h] [-o OUTPUT] [--timeout SECONDS] [--max-output-bytes BYTES] [target]`)*
+*(or via Python: `python3 -m cwushell_test [-h] [-o OUTPUT] [--timeout SECONDS] [--max-output-bytes BYTES] [target]`)*
 
 ### 3.2 Arguments and Options
 

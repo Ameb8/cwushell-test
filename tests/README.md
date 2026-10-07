@@ -7,7 +7,10 @@ The CLI checks are in `test_cli.py`; run them with
 with spaces, syntax errors, invalid targets, environment validation, and the
 temporary runner's absence of execution or report writes. Platform and Python
 version rejection are unit-tested by substituting environment values; real CLI
-subprocess checks run on Linux with the configured Python interpreter.
+subprocess checks run on Linux with the configured Python interpreter. Both
+`python -m cwushell_test` and the installed `cwushell-test` command are tested
+from temporary directories outside the checkout. Run `task setup` first to
+install the `src/` package; tests do not alter Python's import path.
 
 Use pytest fixtures and plain assertions. Mark real PTY tests with
 `@pytest.mark.integration`; these tests still run in the default suite. Synthetic

@@ -1,6 +1,7 @@
 # PTY interaction contract
 
-`pty_session.run_session` runs one finite scenario through a real Linux pexpect
+`cwushell_test.pty_session.run_session` runs one finite scenario through a real
+Linux pexpect
 PTY and returns `Evidence` after cleanup. It has no suite definitions, CLI
 integration, report generation, or output judgments. The CLI runner remains a
 stub until the workflow task connects these components. Start a fresh session for
@@ -8,7 +9,7 @@ each independent case; share commands only to observe state changes.
 
 ```python
 from pathlib import Path
-from pty_session import Command, run_session
+from cwushell_test.pty_session import Command, run_session
 
 result = run_session(
     Path("./cwushell"),
@@ -220,7 +221,8 @@ launch duration.
 ## Combined chunk verification (#2)
 
 The interaction and lifecycle implementations are both present in
-`pty_session.py`. The combined Linux tests exercise their public `run_session`
+`src/cwushell_test/pty_session.py`. The combined Linux tests exercise the public
+`run_session`
 interface together, without requiring suites or reporting to be implemented.
 
 | Integrated acceptance criterion | Evidence |

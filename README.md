@@ -1,14 +1,14 @@
 # CWUShell Test
 
-CWUShell Test is a program designed to test accuracy of implementation of "cwushell", the lab 1 assignment for CS470.001 at CWU (fall 2026 quarter). 
+CWUShell Test collects execution evidence from implementations of "cwushell", the lab 1 assignment for CS470.001 at CWU (fall 2026 quarter).
 
 This program does not output grades for the assignment. All test cases are manually reviewed by me, with my results submitted to the course's proffesor for final grading.
 
 Lab assignment documentation and student work is not included in this repository. 
 
-The purpose of this program is to ensure all submissions are tested deterministaclly, helping minimize the chance for testing errors. Any failed test cases will be re-run manually to determine whether the issue is from the submission or the test program itself.
+The program runs standardized cases and records commands, terminal output, and execution events for manual review. It does not score submissions or decide whether their output is correct.
 
-Passing all test cases does not guarantee that a submission is implemented fully and correctly.
+Completing a case does not establish that a submission is implemented correctly.
 
 ## Development
 
@@ -16,25 +16,40 @@ The CLI skeleton and bounded PTY interaction helper are implemented. Suite
 execution and Markdown reporting are still pending. The helper interface and
 focused fixture checks are documented in [docs/pty-session.md](docs/pty-session.md). Use Linux and Python 3.14+, as
 required by the current
-[canonical specification](docs/specs/cwushell-test.md). The original issue's
-Python 3.8 target predates that requirement.
+[canonical specification](docs/specs/cwushell-test.md).
+
+The harness is an installable Python package with a `src/` layout:
+
+```text
+src/cwushell_test/
+├── __init__.py
+├── __main__.py       # python -m cwushell_test
+├── cli.py            # argument parsing, configuration, runner entry point
+├── pty_session.py    # bounded interaction and process cleanup
+└── py.typed          # type information for package consumers
+tests/
+```
+
+Add future scenario and reporting modules inside this package. Keep harness
+tests and synthetic target programs under `tests/`.
 
 ## CLI skeleton
 
 After `task setup`, display help through either entry point:
 
 ```bash
-uv run --locked python cwushell_test.py --help
-uv run --locked ./cwushell-test --help
+uv run --locked python -m cwushell_test --help
+uv run --locked cwushell-test --help
 ```
 
-The repository launcher can also be placed on `PATH` to invoke `cwushell-test`.
-With Python 3.14+ available, `python3 cwushell_test.py --help` works directly.
-No package installation or build backend is needed.
+`task setup` installs the package in editable mode and creates the console
+command in `.venv/bin/`. With that environment activated, use
+`python -m cwushell_test` or `cwushell-test` directly from any working directory.
+Package installation is required; there are no root-level Python launchers.
 
 ```bash
-uv run --locked ./cwushell-test
-uv run --locked python cwushell_test.py "/path with spaces/cwushell" \
+uv run --locked cwushell-test
+uv run --locked python -m cwushell_test "/path with spaces/cwushell" \
   -o "reports/evidence with spaces.md" --timeout 5 --max-output-bytes 65536
 ```
 
