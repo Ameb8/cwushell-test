@@ -1,4 +1,4 @@
-"""Bounded, evidence-only PTY interactions for one independent scenario."""
+"""Bounded PTY execution and evidence collection for one independent scenario."""
 
 import errno
 import math

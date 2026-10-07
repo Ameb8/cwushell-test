@@ -1,4 +1,4 @@
-"""CLI configuration seam for the CWUShell evidence harness."""
+"""CLI configuration and entry point for the CWUShell evidence harness."""
 
 import argparse
 import math
@@ -115,7 +115,3 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         print(f"cwushell-test: {exc}", file=sys.stderr)
         return 1
     return run(config)
-
-
-if __name__ == "__main__":
-    raise SystemExit(main())
