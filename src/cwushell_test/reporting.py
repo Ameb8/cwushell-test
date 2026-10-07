@@ -189,6 +189,7 @@ def render_report(report: Report) -> str:
         ("Execution timestamp", metadata.timestamp.isoformat()),
         ("Target binary path", metadata.target),
         ("Target architecture", metadata.target_architecture),
+        ("Host architecture", metadata.host_architecture),
         ("OS kernel version", metadata.kernel_version),
         ("Configured interaction timeout (seconds)", metadata.timeout),
         ("Configured per-session capture limit (raw bytes)", metadata.max_output_bytes),

@@ -12,12 +12,12 @@ Completing a case does not establish that a submission is implemented correctly.
 
 ## Development
 
-The CLI skeleton, bounded PTY interaction helper, and case evidence/Markdown
+The complete CLI, bounded PTY interaction helper, and Markdown evidence
 report pipeline are implemented, along with the independent
 [T3–T5 CPU, memory, and help scenarios](docs/information-scenarios.md) and
 [T1/T2/T6 prompt, termination, and system scenarios](docs/shell-scenarios.md).
-Full battery registration and CLI integration are pending. The [report contract](docs/reporting.md)
-describes the models and writer.
+The [full workflow](docs/workflow.md) registers all 58 cases and documents
+end-to-end verification. The [report contract](docs/reporting.md) describes the models and writer.
 The helper interface and
 focused fixture checks are documented in [docs/pty-session.md](docs/pty-session.md). Use Linux and Python 3.14+, as
 required by the current
@@ -34,6 +34,7 @@ src/cwushell_test/
 ├── information_scenarios.py # independent T3–T5 evidence cases
 ├── pty_session.py    # bounded interaction and process cleanup
 ├── reporting.py      # safe Markdown rendering and report writing
+├── runner.py         # T1–T6 orchestration, metadata, progress, and summary
 ├── shell_scenarios.py # T1/T2/T6 evidence cases and state sequences
 └── py.typed          # type information for package consumers
 tests/
@@ -42,7 +43,7 @@ tests/
 Add future scenario and reporting modules inside this package. Keep harness
 tests and synthetic target programs under `tests/`.
 
-## CLI skeleton
+## Evidence collection
 
 After `task setup`, display help through either entry point:
 
@@ -54,7 +55,9 @@ uv run --locked cwushell-test --help
 `task setup` installs the package in editable mode and creates the console
 command in `.venv/bin/`. With that environment activated, use
 `python -m cwushell_test` or `cwushell-test` directly from any working directory.
-Package installation is required; there are no root-level Python launchers.
+Package installation is required. The checkout also provides
+`uv run --locked python cwushell_test.py` as a script entry point into the
+same installed CLI.
 
 ```bash
 uv run --locked cwushell-test
@@ -68,13 +71,23 @@ bytes. Paths resolve relative to the invocation directory. Targets must already
 be compiled externally and be regular executable files. Timeout must be positive
 and finite; capture limit must be a positive integer.
 
-**Temporary behavior:** a valid invocation reaches `run(Configuration)` and exits
-1 with an explicit diagnostic that execution and reporting are not implemented.
-It launches no student session and writes no report. Help exits 0, invalid syntax
-exits 2, and target or environment errors exit 1 with stderr diagnostics. Exit 0
-for an actual run remains reserved for completed execution and report generation.
-The runner receives an immutable configuration containing absolute target and
-output paths and the two interaction limits.
+The runner validates host utilities (including `printenv`), prints live T1–T6
+progress, and writes a complete Markdown report. The final terminal summary
+records each case's execution events and the actual report destination. Each
+independent case gets a fresh PTY and temporary directory; only documented state
+sequences share a session. Reports retain commands, combined terminal output,
+truncation labels, fixtures/environment, and execution/cleanup observations.
+
+Completed execution and report generation exit 0, including student-process
+timeouts or crashes. Invalid syntax exits 2; invocation/environment, launch, and
+report-write errors exit 1 with actionable diagnostics. The output parent must
+already exist. No scores or output correctness statuses are generated.
+
+The cd/export/unset cases are representative built-in observations. Coverage
+excludes comprehensive Bash built-ins, aliases, script sourcing, and job control;
+it does not establish full Bash compatibility. Process-group cleanup covers
+members that remain in the owned group; detached descendants are outside that
+guarantee.
 
 ## Verification
 
@@ -96,6 +109,6 @@ checks, mypy type checking, and tests. Run focused CLI checks with
 `task test -- tests/test_cli.py`. These checks use synthetic executables in
 temporary directories and require no student submissions.
 
-See the [harness specification](docs/specs/cwushell-test.md) for planned behavior
+See the [harness specification](docs/specs/cwushell-test.md) for runtime requirements
 and [development conventions](docs/development.md) for dependency management,
 pytest tests, Ruff and mypy configuration, and agent verification requirements.

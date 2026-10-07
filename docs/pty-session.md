@@ -3,8 +3,8 @@
 `cwushell_test.pty_session.run_session` runs one finite scenario through a real
 Linux pexpect
 PTY and returns `Evidence` after cleanup. It has no suite definitions, CLI
-integration, report generation, or output judgments. The CLI runner remains a
-stub until the workflow task connects these components. Start a fresh session for
+integration, report generation, or output judgments. The [full workflow](workflow.md)
+connects these components through the CLI. Start a fresh session for
 each independent case; share commands only to observe state changes.
 
 ```python

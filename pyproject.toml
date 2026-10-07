@@ -54,7 +54,8 @@ warn_return_any = true
 warn_redundant_casts = true
 warn_unused_ignores = true
 show_error_codes = true
-exclude = '(^|/)(\.venv[^/]*|assignment|reports|transcripts|tests/fixtures)(/|$)'
+# The same-named checkout launcher is checked separately by task typecheck.
+exclude = '(^cwushell_test\.py$|(^|/)(\.venv[^/]*|assignment|reports|transcripts|tests/fixtures)(/|$))'
 
 [[tool.mypy.overrides]]
 module = ["tests", "tests.*"]

@@ -5,7 +5,7 @@ complete suite with `task test`, or select tests with `task test -- -k cleanup`.
 The CLI checks are in `test_cli.py`; run them with
 `task test -- tests/test_cli.py`. They cover both entry points, defaults and paths
 with spaces, syntax errors, invalid targets, environment validation, and the
-temporary runner's absence of execution or report writes. Platform and Python
+rejection before execution or report writes when host utilities are missing. Platform and Python
 version rejection are unit-tested by substituting environment values; real CLI
 subprocess checks run on Linux with the configured Python interpreter. Both
 `python -m cwushell_test` and the installed `cwushell-test` command are tested
@@ -75,3 +75,12 @@ the exact inventories, fixture settings, and evidence adapter. Real PTYs run
 direct file observations, exit/signal/cleanup distinctions, and continuation after
 faults. These tests also render returned evidence through the existing report
 contract without invoking CLI orchestration or student binaries.
+
+Full CLI/report checks live in `test_runner.py`; run
+`task test -- tests/test_runner.py`. See [workflow verification](../docs/workflow.md)
+for the acceptance mapping and reproducible synthetic commands. These tests
+exercise all 58 cases through the console, module, and checkout script entry
+points, then repeat full runs in-process to measure descriptor release and
+per-case interaction/cleanup bounds. Finite 180/300-second outer timeouts account
+for 58 real PTY launches per run and two runs in the lifecycle check. Test-side
+finally cleanup retains ownership through recorded process groups.

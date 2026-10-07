@@ -16,6 +16,9 @@ def emit(text):
 
 
 mode = os.environ.get("SCENARIO_MODE", "record")
+if log_path := os.environ.get("SCENARIO_LOG"):
+    with open(log_path, "a") as log:
+        log.write(json.dumps([os.getpid(), os.getpgrp(), os.getcwd()]) + "\n")
 emit(
     "INITIAL "
     + json.dumps(
@@ -37,7 +40,7 @@ if mode == "startup_exit":
     sys.exit(19)
 prompt = "cwushell>"
 status = 0
-if mode != "missing":
+if mode not in ("missing", "integration"):
     emit(prompt)
 
 for line in sys.stdin:
@@ -46,6 +49,17 @@ for line in sys.stdin:
     # JSON decoding still returns the exact received command.
     received = json.dumps([command, os.getpid(), os.getcwd()]).replace(">", "\\u003e")
     emit("RECEIVED " + received + "\n")
+    if mode == "integration":
+        if command == "prompt myprompt>":
+            emit("unexpected> diagnostic\n")
+            continue
+        if command == "meminfo   -t   -u":
+            os.kill(os.getpid(), signal.SIGSEGV)
+        if command == "cpuinfo -c":
+            while True:
+                emit("x" * 4096)
+        if command == "cpuinfo   -c   -t":
+            emit("bounded flood prefix\n" + "x" * 16384 + "\n")
     if mode == "crash":
         os.kill(os.getpid(), signal.SIGSEGV)
     if mode == "hang":
@@ -67,6 +81,9 @@ for line in sys.stdin:
         prompt = "myprompt>"
     elif command == "prompt":
         prompt = "cwushell>"
+    elif command in ("exit -h", "exit --help"):
+        # Arbitrary documentation output remains evidence, without predicates.
+        emit("\x1b[31modd ``` documentation | output\x1b[0m\n")
     elif command.startswith("exit"):
         fields = command.split()
         sys.exit(int(fields[1]) % 256 if len(fields) > 1 else status)
@@ -78,7 +95,7 @@ for line in sys.stdin:
         emit(Path("source.txt").read_text())
     elif command == "cp source.txt copied.txt":
         shutil.copyfile("source.txt", "copied.txt")
-        if mode == "cleanup_effect":
+        if mode in ("cleanup_effect", "integration"):
 
             def terminate(signum, frame):
                 Path("copied.txt").write_bytes(b"cleanup contents\n")

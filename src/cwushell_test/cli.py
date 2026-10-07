@@ -45,10 +45,7 @@ def create_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="cwushell-test",
         description="Configure CWUShell evidence collection for manual review.",
-        epilog=(
-            "CLI skeleton only: execution and reporting are not implemented. "
-            "A valid invocation exits 1 without launching the target or writing a report."
-        ),
+        epilog="Collect T1–T6 execution evidence for manual review, without scoring.",
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
         allow_abbrev=False,
     )
@@ -97,21 +94,17 @@ def validate_configuration(args: argparse.Namespace) -> Configuration:
 
 
 def run(config: Configuration) -> int:
-    """Temporary runner seam; later tasks supply execution and reporting."""
-    print(
-        f"cwushell-test: configuration validated for {config.target}. "
-        "Execution and reporting are not implemented; "
-        "no student session was launched and no report was written.",
-        file=sys.stderr,
-    )
-    return 1
+    """Run all suites and write evidence using the validated invocation paths."""
+    from cwushell_test.runner import execute
+
+    return execute(config)
 
 
 def main(argv: Optional[Sequence[str]] = None) -> int:
     args = create_parser().parse_args(argv)
     try:
         config = validate_configuration(args)
+        return run(config)
     except (OSError, RuntimeError, ValueError) as exc:
         print(f"cwushell-test: {exc}", file=sys.stderr)
         return 1
-    return run(config)

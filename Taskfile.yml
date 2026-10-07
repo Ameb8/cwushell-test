@@ -41,6 +41,7 @@ tasks:
     dir: '{{.ROOT_DIR}}'
     cmds:
       - uv run --locked mypy .
+      - uv run --locked mypy cwushell_test.py
 
   check:
     desc: Run lint, formatting, type checks, and the full test suite in sequence

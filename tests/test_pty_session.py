@@ -3,6 +3,7 @@
 import ctypes
 import os
 import re
+import shutil
 import signal
 import sys
 import time
@@ -125,6 +126,17 @@ def test_initial_changed_reset_prompts_and_expected_eof(owned_sessions):
     assert result.output.startswith("startup evidence\n")
     assert "goodbye\n" in result.output
     assert "hello" not in result.output
+    assert_released(result, owned_sessions)
+
+
+def test_executable_path_with_spaces_and_quotes(tmp_path: Path, owned_sessions):
+    target = tmp_path / "shell with 'quotes' and spaces"
+    shutil.copyfile(SHELL, target)
+    target.chmod(0o700)
+    result = run_session(target, [Command("exit", None)], timeout=1)
+    assert result.dispatched == ["exit"]
+    assert result.exit_status == 42
+    assert result.error is None
     assert_released(result, owned_sessions)
 
 

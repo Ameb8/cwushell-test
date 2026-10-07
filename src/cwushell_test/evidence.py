@@ -95,6 +95,7 @@ class ExecutionMetadata:
     kernel_version: str
     timeout: float
     max_output_bytes: int
+    host_architecture: str = "Not recorded"
 
 
 @dataclass(frozen=True)

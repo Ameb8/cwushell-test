@@ -3,8 +3,8 @@
 `cwushell_test.shell_scenarios` supplies immutable `PROMPT_CASES` (T1, eight
 cases), `TERMINATION_CASES` (T2, five cases), and `SYSTEM_CASES` (T6, twelve
 cases). Identifiers are stable within each suite. These definitions cover every
-T1/T2/T6 input in specification section 6. Full battery registration and CLI
-orchestration remain with #9.
+T1/T2/T6 input in specification section 6. The [full workflow](workflow.md)
+provides full battery registration and CLI orchestration.
 
 Each `ShellScenario.run(target, timeout=10.0, max_output_bytes=1048576)` launches
 one fresh session through the existing PTY helper and returns `CaseEvidence`

@@ -36,8 +36,8 @@ Output is never interpreted for numeric plausibility, units, host values,
 components, completeness, or documentation layout. Empty output, diagnostics,
 unusual formatting, and prompt/termination events are observations for manual
 review. Capture truncation does not alter command/event recording or stop prompt
-detection. Workflow registration, CLI orchestration, progress, and full-run report
-integration remain owned by #9.
+detection. The [full workflow](workflow.md) provides registration, CLI orchestration,
+progress, and full-run report integration.
 
 ## Focused verification of issue #8
 

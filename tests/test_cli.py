@@ -9,10 +9,12 @@ import pytest
 from cwushell_test import cli
 
 
-@pytest.fixture(params=["module", "console"])
+@pytest.fixture(params=["module", "console", "script"])
 def invocation(request):
     if request.param == "module":
         return [sys.executable, "-m", "cwushell_test"]
+    if request.param == "script":
+        return [sys.executable, str(Path(__file__).parents[1] / "cwushell_test.py")]
     return [str(Path(sys.executable).with_name("cwushell-test"))]
 
 
@@ -36,7 +38,7 @@ def test_help_without_target(invocation, tmp_path: Path):
     assert result.stderr == ""
     for default in ("./cwushell", "cwushell_test_report.md", "10.0", "1048576"):
         assert default in result.stdout
-    assert "not implemented" in result.stdout
+    assert "T1–T6" in result.stdout
 
 
 def test_default_configuration_reaches_runner(target: Path, monkeypatch):
@@ -168,7 +170,9 @@ def test_help_bypasses_environment_validation(monkeypatch, capsys):
     assert capsys.readouterr().err == ""
 
 
-def test_stub_does_not_execute_or_write_report(invocation, target: Path):
+def test_missing_host_utilities_do_not_execute_or_write_report(
+    invocation, target: Path
+):
     output = target.parent / "existing report.md"
     output.write_text("preserve existing evidence", encoding="utf-8")
     result = subprocess.run(
@@ -182,8 +186,8 @@ def test_stub_does_not_execute_or_write_report(invocation, target: Path):
     )
     assert result.returncode == 1
     assert result.stdout == ""
-    assert "configuration validated" in result.stderr
-    assert "no student session was launched and no report was written" in result.stderr
+    assert "required host utility" in result.stderr
+    assert "PATH" in result.stderr
     assert not (target.parent / "launched").exists()
     assert output.read_text(encoding="utf-8") == "preserve existing evidence"
     assert not (target.parent / "cwushell_test_report.md").exists()
@@ -196,3 +200,19 @@ def test_path_resolution_error_is_diagnostic(target: Path, monkeypatch, capsys):
     monkeypatch.setattr(Path, "resolve", denied)
     assert cli.main([str(target)]) == 1
     assert "cannot access invocation directory" in capsys.readouterr().err
+
+
+def test_checkout_launcher_preserves_installed_package_imports():
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-c",
+            "from cwushell_test.cli import main; print(main.__module__)",
+        ],
+        cwd=Path(__file__).parents[1],
+        capture_output=True,
+        text=True,
+        timeout=10,
+    )
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.strip() == "cwushell_test.cli"

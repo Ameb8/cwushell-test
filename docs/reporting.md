@@ -2,9 +2,8 @@
 
 `cwushell_test.evidence` defines the evidence contract for scenario runners,
 fixture collectors, and the workflow. `cwushell_test.reporting` renders and writes
-it without launching processes or collecting host metadata. The CLI remains a
-stub; suite registration, metadata collection, progress, and exit handling belong
-to the workflow integration task (#9).
+it without launching processes or collecting host metadata. The [workflow](workflow.md) supplies suite registration, metadata collection,
+progress, and CLI exit handling.
 
 ## Producer interfaces
 
@@ -48,7 +47,7 @@ The fixture fields are:
 The helper supplies `working_directory`; fixture collectors must record all
 settings used, even though the directory is removed after cleanup. The workflow
 supplies `ExecutionMetadata(timestamp, target, target_architecture,
-kernel_version, timeout, max_output_bytes)` and the ordered cases in `Report`.
+kernel_version, timeout, max_output_bytes, host_architecture=...)` and the ordered cases in `Report`.
 Use a timezone-aware execution timestamp and the resolved target path. The
 architecture describes the target binary; the renderer does not infer it from
 the host. Metadata limits describe the run; each session's capture notes also
@@ -116,4 +115,5 @@ Run `task test -- tests/test_reporting.py`, then `task check`.
 | Repository tooling | Focused pytest and full lint/format/typecheck/test gate |
 
 These checks verify harness recording/rendering, not student output. Fixture
-collection, scenario execution, and CLI integration stay with their owning tasks.
+collection, scenario execution, and CLI integration are verified separately by
+their focused tests and the full workflow tests.

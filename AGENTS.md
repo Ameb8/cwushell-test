@@ -2,7 +2,7 @@
 
 ## Project Structure & Module Organization
 
-The CLI skeleton and bounded PTY helper are implemented in `src/cwushell_test/`. Keep application modules inside this package: `cli.py` owns configuration and CLI parsing, `pty_session.py` owns PTY execution, and `__main__.py` delegates module invocation to the CLI. Add scenario and reporting modules here as those features are implemented. `README.md` describes the project’s purpose; `docs/specs/cwushell-test.md` defines harness behavior, CLI, suites, and reporting requirements. Consult the specification before implementing changes. Harness tests and synthetic programs live under `tests/`; `tests/README.md` defines test conventions. Keep assignment materials and student submissions out of version control; `assignment/` is ignored.
+The complete CLI and bounded PTY helper are implemented in `src/cwushell_test/`. Keep application modules inside this package: `cli.py` owns configuration and CLI parsing, `runner.py` owns suite orchestration, `pty_session.py` owns PTY execution, and `__main__.py` delegates module invocation to the CLI. Scenario definitions and Markdown reporting have separate modules here. `README.md` describes the project’s purpose; `docs/specs/cwushell-test.md` defines harness behavior, CLI, suites, and reporting requirements. Consult the specification before implementing changes. Harness tests and synthetic programs live under `tests/`; `tests/README.md` defines test conventions. Keep assignment materials and student submissions out of version control; `assignment/` is ignored.
 
 ## Build, Test, and Development Commands
 
@@ -16,7 +16,7 @@ After `task setup`, these commands use the installed package:
 - `uv run --locked python -m cwushell_test ./cwushell`: collect evidence using the default settings.
 - `uv run --locked python -m cwushell_test /path/to/cwushell -o report.md --timeout 5 --max-output-bytes 65536`: customize the report, interaction deadline, and capture limit.
 
-The CLI currently validates configuration and exits 1 with an explicit diagnostic that execution/reporting are pending. Module invocation and the installed console command share `cwushell_test.cli:main`.
+The CLI executes all T1–T6 cases and generates a Markdown evidence report; completed runs exit 0 even when student-process timeouts or crashes are recorded. Module invocation and the installed console command share `cwushell_test.cli:main`.
 
 ## Coding Style & Naming Conventions
 

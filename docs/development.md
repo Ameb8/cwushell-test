@@ -3,12 +3,10 @@
 ## Status and scope
 
 The development tooling is configured in `Taskfile.yml`, `pyproject.toml`, and
-`uv.lock`. The CLI skeleton, bounded PTY helper, and focused synthetic fixture
-tests and the case evidence/Markdown report pipeline are implemented; suite
-execution and CLI integration remain pending. See the [report contract](reporting.md) and
-[PTY interface](pty-session.md) for the helper contract and measured bounds. All verification commands now have meaningful sources
-and tests to check. The temporary runner validates configuration and exits 1
-without executing a target or writing a report; see the [README](../README.md).
+`uv.lock`. The complete T1–T6 CLI workflow, bounded PTY helper, scenario
+inventories, fixture lifecycle, and Markdown evidence pipeline are implemented.
+See the [workflow verification](workflow.md), [report contract](reporting.md),
+and [PTY interface](pty-session.md) for interfaces and measured bounds.
 
 The [harness specification](specs/cwushell-test.md) defines runtime behavior and
 student-shell evidence collection. This guide defines how contributors and agents
@@ -73,12 +71,12 @@ commands do not update dependencies. To update deliberately, run
 `uv lock --upgrade` followed by `task setup`, review the lockfile changes, and
 run `task check`. Revisit version ranges when adopting a new major tool release.
 
-Run the skeleton with
+Run the harness with
 `uv run --locked python -m cwushell_test ./cwushell` or
 `uv run --locked cwushell-test ./cwushell`.
 Student binaries must still be compiled externally. Runtime fixture observations
-will also require the Linux utilities named in the specification, including
-`printenv`; those utilities are not needed for the current CLI checks.
+require the Linux utilities named in the specification, including
+`printenv`; full workflow tests require those host utilities too.
 
 | Command | Required behavior |
 |---|---|
@@ -88,7 +86,7 @@ will also require the Linux utilities named in the specification, including
 | `task lint` | Run `uv run --locked ruff check .`; report violations without editing files. |
 | `task format` | Run `uv run --locked ruff format .`; format Python files in place. |
 | `task format:check` | Run `uv run --locked ruff format --check .`; check formatting without editing files. |
-| `task typecheck` | Run `uv run --locked mypy .`; check types and require annotations on harness functions. |
+| `task typecheck` | Run `uv run --locked mypy .` and a separate launcher check; check types and require annotations on harness functions. |
 | `task check` | Run lint, formatting checks, type checking, and the complete test suite, in sequence; fail if any check fails. |
 
 Verification tasks must execute on every invocation; do not use Task caching to
@@ -170,6 +168,10 @@ synthetic programs (which may deliberately simulate faulty behavior). Exclusion
 controls discovery, not imports: avoid importing those synthetic programs into
 harness code or test modules. Do not place harness implementation under `tests/`.
 
+The root `cwushell_test.py` launcher shares the package name. Mypy excludes
+that launcher from the combined discovery pass to avoid a duplicate module,
+then `task typecheck` checks it explicitly in a second pass. Both remain checked.
+
 Run `task typecheck` for type checking alone, or `task check` for all verification.
 Do not add dummy source files or suppress empty-suite failures. Ruff handles
 linting and formatting; annotation rules are enforced by mypy rather than
@@ -199,7 +201,7 @@ Actions, requires branches to be up to date before merging, and applies to
 administrators too. This is repository configuration, separate from the workflow
 file; forks must configure their own branch protection to enforce the same gate.
 
-The CLI skeleton and tests run in these checks without student binaries.
+The full workflow and synthetic tests run in these checks without student binaries.
 
 Keep student binaries and generated evidence out of version control. The default
 report, root `cwushell` binary, `reports/`, and `transcripts/` are ignored. Put

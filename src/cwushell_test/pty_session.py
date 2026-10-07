@@ -5,6 +5,7 @@ import math
 import os
 import re
 import select
+import shlex
 import signal
 import tempfile
 import time
@@ -317,7 +318,9 @@ def run_session(
                 for fixture in fixture_plan
             )
             child = pexpect.spawn(
-                str(executable),
+                # pexpect splits its command even with args=[]. Quote the sole
+                # executable for that parser; no shell or extra argument is used.
+                shlex.quote(str(executable)),
                 cwd=directory,
                 env=env,
                 encoding=None,
