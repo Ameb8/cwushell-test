@@ -66,3 +66,12 @@ describe the exact T3–T5 inventories and their evidence adapter. These tests u
 `fixtures/information_shell.py` through real PTYs to record all 33 exact inputs,
 verify independent sessions, and retain arbitrary output and fault events while
 continuing later cases. They do not invoke the full CLI workflow.
+
+Prompt, termination, and system-command checks live in `test_shell_scenarios.py`.
+Run `task test -- tests/test_shell_scenarios.py`; the
+[T1/T2/T6 interface and acceptance mapping](../docs/shell-scenarios.md) describe
+the exact inventories, fixture settings, and evidence adapter. Real PTYs run
+`fixtures/scenario_shell.py` to verify spaces/tabs, fresh sessions, state changes,
+direct file observations, exit/signal/cleanup distinctions, and continuation after
+faults. These tests also render returned evidence through the existing report
+contract without invoking CLI orchestration or student binaries.

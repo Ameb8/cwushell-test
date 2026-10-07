@@ -14,8 +14,9 @@ Completing a case does not establish that a submission is implemented correctly.
 
 The CLI skeleton, bounded PTY interaction helper, and case evidence/Markdown
 report pipeline are implemented, along with the independent
-[T3–T5 CPU, memory, and help scenarios](docs/information-scenarios.md). Remaining
-suites and CLI integration are pending. The [report contract](docs/reporting.md)
+[T3–T5 CPU, memory, and help scenarios](docs/information-scenarios.md) and
+[T1/T2/T6 prompt, termination, and system scenarios](docs/shell-scenarios.md).
+Full battery registration and CLI integration are pending. The [report contract](docs/reporting.md)
 describes the models and writer.
 The helper interface and
 focused fixture checks are documented in [docs/pty-session.md](docs/pty-session.md). Use Linux and Python 3.14+, as
@@ -33,6 +34,7 @@ src/cwushell_test/
 ├── information_scenarios.py # independent T3–T5 evidence cases
 ├── pty_session.py    # bounded interaction and process cleanup
 ├── reporting.py      # safe Markdown rendering and report writing
+├── shell_scenarios.py # T1/T2/T6 evidence cases and state sequences
 └── py.typed          # type information for package consumers
 tests/
 ```
