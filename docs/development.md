@@ -3,10 +3,10 @@
 ## Status and scope
 
 The development tooling is configured in `Taskfile.yml`, `pyproject.toml`, and
-`uv.lock`. Harness code and meaningful harness tests have not been implemented
-yet. Setup, lint, and formatting commands are available. `task typecheck` exits
-nonzero until Python sources exist, and `task test` exits nonzero until tests
-exist; `task check` propagates those failures.
+`uv.lock`. The complete T1–T6 CLI workflow, bounded PTY helper, scenario
+inventories, fixture lifecycle, and Markdown evidence pipeline are implemented.
+See the [workflow verification](workflow.md), [report contract](reporting.md),
+and [PTY interface](pty-session.md) for interfaces and measured bounds.
 
 The [harness specification](specs/cwushell-test.md) defines runtime behavior and
 student-shell evidence collection. This guide defines how contributors and agents
@@ -51,8 +51,19 @@ task test
 `task setup` installs runtime and development dependencies into `.venv/`.
 Tasks run from the repository root, propagate failures, and do not require manual
 virtual-environment activation. Inspect available tasks with `task --list`.
-The project is deliberately unpackaged (`tool.uv.package = false`); no build
-backend or installed CLI is needed before the standalone script exists.
+The project uses the [uv build backend](https://docs.astral.sh/uv/concepts/build-backend/)
+and a `src/` package layout. `task setup` installs `src/cwushell_test/` in editable
+mode and creates the `cwushell-test` console command from
+`cwushell_test.cli:main`. `python -m cwushell_test` reaches the same entry point
+through `__main__.py`. Keep `__init__.py` free of execution side effects.
+
+Harness modules belong under `src/cwushell_test/`; tests belong under `tests/`.
+Pytest imports the installed package without adding the repository or `src/`
+to `pythonpath`. This ensures subprocess checks can exercise both installed
+entry points from temporary directories outside the checkout. Use `uv build`
+to produce a source distribution and wheel when needed; keep `dist/` ignored.
+Mypy uses `src/` as its source root; the package's `py.typed` marker makes its
+annotations available to installed consumers as well.
 
 Use current stable tool releases within the manifest's declared version ranges.
 `uv.lock` pins the resolved versions and hashes for reproducibility; routine
@@ -60,11 +71,12 @@ commands do not update dependencies. To update deliberately, run
 `uv lock --upgrade` followed by `task setup`, review the lockfile changes, and
 run `task check`. Revisit version ranges when adopting a new major tool release.
 
-Once the entry point is implemented, run it with
-`uv run --locked python cwushell_test.py ./cwushell`.
+Run the harness with
+`uv run --locked python -m cwushell_test ./cwushell` or
+`uv run --locked cwushell-test ./cwushell`.
 Student binaries must still be compiled externally. Runtime fixture observations
-will also require the Linux utilities named in the specification, including
-`printenv`; those utilities are not needed for the current empty suite.
+require the Linux utilities named in the specification, including
+`printenv`; full workflow tests require those host utilities too.
 
 | Command | Required behavior |
 |---|---|
@@ -74,7 +86,7 @@ will also require the Linux utilities named in the specification, including
 | `task lint` | Run `uv run --locked ruff check .`; report violations without editing files. |
 | `task format` | Run `uv run --locked ruff format .`; format Python files in place. |
 | `task format:check` | Run `uv run --locked ruff format --check .`; check formatting without editing files. |
-| `task typecheck` | Run `uv run --locked mypy .`; check types and require annotations on harness functions. |
+| `task typecheck` | Run `uv run --locked mypy .` and a separate launcher check; check types and require annotations on harness functions. |
 | `task check` | Run lint, formatting checks, type checking, and the complete test suite, in sequence; fail if any check fails. |
 
 Verification tasks must execute on every invocation; do not use Task caching to
@@ -92,8 +104,8 @@ Use pytest as the sole test runner. Prefer function-based tests, plain `assert`
 statements, pytest fixtures, and parametrization. Standard-library helpers such as
 `unittest.mock` remain available; do not introduce a separate `unittest` runner.
 Place tests under `tests/` with descriptive `test_*.py` filenames, and configure
-pytest discovery with `testpaths = ["tests"]` so it does not collect the planned
-`cwushell_test.py` entry point as a test module.
+pytest discovery with `testpaths = ["tests"]` so application modules under
+`src/` are not collected as tests.
 
 Test observable harness behavior. Unit tests cover CLI validation, scenario
 definitions, output normalization, capture limits, and Markdown reporting. Linux
@@ -156,11 +168,14 @@ synthetic programs (which may deliberately simulate faulty behavior). Exclusion
 controls discovery, not imports: avoid importing those synthetic programs into
 harness code or test modules. Do not place harness implementation under `tests/`.
 
+The root `cwushell_test.py` launcher shares the package name. Mypy excludes
+that launcher from the combined discovery pass to avoid a duplicate module,
+then `task typecheck` checks it explicitly in a second pass. Both remain checked.
+
 Run `task typecheck` for type checking alone, or `task check` for all verification.
-With no Python files yet, mypy reports that there are no files to check and returns
-nonzero. This is an incomplete state; do not add dummy source files or suppress
-that failure. Ruff continues to handle linting and formatting; annotation rules
-are enforced by mypy rather than enabling Ruff's `ANN` rules.
+Do not add dummy source files or suppress empty-suite failures. Ruff handles
+linting and formatting; annotation rules are enforced by mypy rather than
+enabling Ruff's `ANN` rules.
 
 See the official [mypy configuration reference](https://mypy.readthedocs.io/en/stable/config_file.html)
 for annotation requirements and per-module overrides.
@@ -186,9 +201,7 @@ Actions, requires branches to be up to date before merging, and applies to
 administrators too. This is repository configuration, separate from the workflow
 file; forks must configure their own branch protection to enforce the same gate.
 
-CI currently fails type checking because no Python sources exist and pytest
-because no tests are collected. These failures remain visible until meaningful
-implementation and tests are added.
+The full workflow and synthetic tests run in these checks without student binaries.
 
 Keep student binaries and generated evidence out of version control. The default
 report, root `cwushell` binary, `reports/`, and `transcripts/` are ignored. Put

@@ -2,7 +2,15 @@
 
 Add meaningful `test_*.py` tests here as harness behavior is implemented. Run the
 complete suite with `task test`, or select tests with `task test -- -k cleanup`.
-There are no harness tests yet; pytest's empty-suite exit remains nonzero.
+The CLI checks are in `test_cli.py`; run them with
+`task test -- tests/test_cli.py`. They cover both entry points, defaults and paths
+with spaces, syntax errors, invalid targets, environment validation, and the
+rejection before execution or report writes when host utilities are missing. Platform and Python
+version rejection are unit-tested by substituting environment values; real CLI
+subprocess checks run on Linux with the configured Python interpreter. Both
+`python -m cwushell_test` and the installed `cwushell-test` command are tested
+from temporary directories outside the checkout. Run `task setup` first to
+install the `src/` package; tests do not alter Python's import path.
 
 Use pytest fixtures and plain assertions. Mark real PTY tests with
 `@pytest.mark.integration`; these tests still run in the default suite. Synthetic
@@ -23,3 +31,56 @@ process group or session unless the test explicitly owns and cleans them up.
 
 See [development conventions](../docs/development.md) and the
 [harness specification](../docs/specs/cwushell-test.md) for required coverage.
+
+The bounded PTY contract checks are in `test_pty_session.py`. Run
+`task test -- tests/test_pty_session.py`; see the [helper interface and measured
+bounds](../docs/pty-session.md) for fixture modes, evidence fields, and the
+acceptance-criteria mapping. These Linux checks use the executable
+`fixtures/mock_shell.py` independently of suites or scoring.
+
+Lifecycle checks also fork synthetic descendants, verify the actual process
+group through `/proc`, exercise TERM/KILL escalation after the leader exits,
+and check direct-child reaping and fresh sessions after faults. The test-side
+containment fixture temporarily enables Linux child-subreaper mode and reaps only
+owned fixture groups; it restores the previous setting afterward. This avoids
+accumulating orphan zombies on hosts with a non-reaping PID 1 and is deliberately
+absent from the production helper.
+
+The case model/report checks are in `test_reporting.py`. Run
+`task test -- tests/test_reporting.py`; see the [report contract](../docs/reporting.md)
+for producer interfaces and the issue #3 acceptance mapping. These tests construct
+synthetic evidence without launching a target and exercise Markdown containment,
+concurrent execution observations, capture labels, fixtures, and report I/O.
+
+Fixture lifecycle checks also live in `test_pty_session.py`; select them with
+`task test -- tests/test_pty_session.py -k fixture`. They verify direct harness
+observations and session isolation, controlled initial environments, and snapshot
+ordering through real PTYs and synthetic filesystem changes, including changes
+during cleanup. See the [fixture lifecycle contract](../docs/pty-session.md) for
+the fixed fixture bytes, diagnostic behavior, and failure-path coverage.
+
+CPU, memory, and help scenario checks live in `test_information_scenarios.py`.
+Run `task test -- tests/test_information_scenarios.py`; the
+[scenario interface and acceptance mapping](../docs/information-scenarios.md)
+describe the exact T3–T5 inventories and their evidence adapter. These tests use
+`fixtures/information_shell.py` through real PTYs to record all 33 exact inputs,
+verify independent sessions, and retain arbitrary output and fault events while
+continuing later cases. They do not invoke the full CLI workflow.
+
+Prompt, termination, and system-command checks live in `test_shell_scenarios.py`.
+Run `task test -- tests/test_shell_scenarios.py`; the
+[T1/T2/T6 interface and acceptance mapping](../docs/shell-scenarios.md) describe
+the exact inventories, fixture settings, and evidence adapter. Real PTYs run
+`fixtures/scenario_shell.py` to verify spaces/tabs, fresh sessions, state changes,
+direct file observations, exit/signal/cleanup distinctions, and continuation after
+faults. These tests also render returned evidence through the existing report
+contract without invoking CLI orchestration or student binaries.
+
+Full CLI/report checks live in `test_runner.py`; run
+`task test -- tests/test_runner.py`. See [workflow verification](../docs/workflow.md)
+for the acceptance mapping and reproducible synthetic commands. These tests
+exercise all 58 cases through the console, module, and checkout script entry
+points, then repeat full runs in-process to measure descriptor release and
+per-case interaction/cleanup bounds. Finite 180/300-second outer timeouts account
+for 58 real PTY launches per run and two runs in the lifecycle check. Test-side
+finally cleanup retains ownership through recorded process groups.
