@@ -58,3 +58,11 @@ observations and session isolation, controlled initial environments, and snapsho
 ordering through real PTYs and synthetic filesystem changes, including changes
 during cleanup. See the [fixture lifecycle contract](../docs/pty-session.md) for
 the fixed fixture bytes, diagnostic behavior, and failure-path coverage.
+
+CPU, memory, and help scenario checks live in `test_information_scenarios.py`.
+Run `task test -- tests/test_information_scenarios.py`; the
+[scenario interface and acceptance mapping](../docs/information-scenarios.md)
+describe the exact T3–T5 inventories and their evidence adapter. These tests use
+`fixtures/information_shell.py` through real PTYs to record all 33 exact inputs,
+verify independent sessions, and retain arbitrary output and fault events while
+continuing later cases. They do not invoke the full CLI workflow.
