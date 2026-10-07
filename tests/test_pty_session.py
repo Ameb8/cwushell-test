@@ -11,6 +11,14 @@ from pathlib import Path
 import pytest
 
 from cwushell_test import pty_session as pty
+from cwushell_test.evidence import CaseEvidence
+from cwushell_test.fixtures import (
+    CD_FIXTURES,
+    EXPORT_ENVIRONMENT,
+    EXTERNAL_FIXTURES,
+    UNSET_ENVIRONMENT,
+    Fixture,
+)
 from cwushell_test.pty_session import Command, clean_output, run_session
 
 SHELL = Path(__file__).parent / "fixtures" / "mock_shell.py"
@@ -565,3 +573,264 @@ def test_dispatch_and_expected_exit_faults_are_contained(fault, owned_sessions):
         assert fresh.working_directory != result.working_directory
         assert_released(fresh, owned_sessions)
     assert len(list(Path("/proc/self/fd").iterdir())) == before
+
+
+def observation(result, path, phase):
+    return next(
+        item
+        for item in result.file_observations
+        if item.path == path and item.phase == phase
+    )
+
+
+def test_fixture_isolation_and_case_contract(owned_sessions):
+    first = run_session(
+        SHELL, [Command("fixture_mutate")], fixtures=EXTERNAL_FIXTURES, timeout=1
+    )
+    second = run_session(SHELL, fixtures=EXTERNAL_FIXTURES, timeout=1)
+    assert first.working_directory != second.working_directory
+    for result in (first, second):
+        assert (
+            observation(result, "source.txt", "before").contents
+            == EXTERNAL_FIXTURES[0].contents
+        )
+        assert (
+            observation(result, "removable.txt", "before").contents
+            == EXTERNAL_FIXTURES[1].contents
+        )
+        assert observation(result, "copied.txt", "before").exists is False
+        assert not Path(result.working_directory).exists()
+    assert observation(first, "source.txt", "after").contents == b"changed\x00bytes\r\n"
+    assert (
+        observation(first, "copied.txt", "after").contents
+        == EXTERNAL_FIXTURES[0].contents
+    )
+    assert observation(first, "removable.txt", "after").exists is False
+    assert (
+        observation(second, "source.txt", "after").contents
+        == EXTERNAL_FIXTURES[0].contents
+    )
+    assert observation(second, "removable.txt", "after").exists is True
+    assert observation(second, "copied.txt", "after").exists is False
+    case = CaseEvidence(
+        "synthetic", "T6", "Fixture observations", (Command("fixture_mutate"),), first
+    )
+    assert case.fixtures == first.fixtures == EXTERNAL_FIXTURES
+    assert case.file_observations == first.file_observations
+    assert case.controlled_environment == first.controlled_environment
+    assert first.dispatched == ["fixture_mutate"]
+    assert_released(second, owned_sessions)
+
+
+def test_fixture_environment_directory_and_relative_target(monkeypatch, owned_sessions):
+    monkeypatch.setenv("CWUSHELL_TEST_EXPORT", "inherited")
+    monkeypatch.setenv("CWUSHELL_TEST_UNSET", "inherited")
+    monkeypatch.setenv("TERM", "inherited")
+    result = run_session(
+        SHELL.relative_to(Path.cwd()),
+        [Command("fixture_state")],
+        fixtures=CD_FIXTURES,
+        controlled_environment={
+            **EXPORT_ENVIRONMENT,
+            **UNSET_ENVIRONMENT,
+            "TERM": "override",
+        },
+        timeout=1,
+    )
+    assert f"cwd={result.working_directory}\n" in result.output
+    assert "CWUSHELL_TEST_EXPORT=<absent>\n" in result.output
+    assert "CWUSHELL_TEST_UNSET=fixture_value\n" in result.output
+    assert "TERM=dumb\nLC_ALL=C\nLANG=C\n" in result.output
+    assert "fixture_dir_empty=True\n" in result.output
+    assert result.controlled_environment == {
+        "CWUSHELL_TEST_EXPORT": None,
+        "CWUSHELL_TEST_UNSET": "fixture_value",
+        "TERM": "dumb",
+        "LC_ALL": "C",
+        "LANG": "C",
+    }
+    assert os.environ["CWUSHELL_TEST_EXPORT"] == "inherited"
+    for phase in ("before", "after"):
+        assert observation(result, "fixture_dir", phase).exists is True
+        assert observation(result, "fixture_dir", phase).contents is None
+    assert_released(result, owned_sessions)
+
+
+def test_fixture_snapshot_after_cleanup_before_removal(monkeypatch, owned_sessions):
+    from cwushell_test import fixtures
+
+    snapshot = fixtures.snapshot
+    phases = []
+
+    def record(directory, path, phase):
+        assert directory.exists()
+        if phase == "before":
+            assert owned_sessions == []
+        else:
+            assert owned_sessions[-1].closed
+            with pytest.raises(ChildProcessError):
+                os.waitpid(owned_sessions[-1].pid, os.WNOHANG)
+        phases.append(phase)
+        return snapshot(directory, path, phase)
+
+    monkeypatch.setattr(fixtures, "snapshot", record)
+    result = run_session(
+        SHELL, [Command("fixture_term")], fixtures=EXTERNAL_FIXTURES, timeout=1
+    )
+    assert phases == ["before"] * 3 + ["after"] * 3
+    assert (
+        observation(result, "copied.txt", "after").contents
+        == b"written during cleanup\n"
+    )
+    assert_released(result, owned_sessions)
+
+
+@pytest.mark.parametrize("fault", ["stream", "crash", "exception"])
+def test_fixture_observations_survive_execution_faults(
+    fault, monkeypatch, owned_sessions
+):
+    if fault == "exception":
+        original = pty._Reader.wait
+
+        def fail_after_mutation(self, prompt, deadline):
+            event = original(self, prompt, deadline)
+            if self.evidence.dispatched:
+                raise RuntimeError("injected after mutation")
+            return event
+
+        monkeypatch.setattr(pty._Reader, "wait", fail_after_mutation)
+        commands = [Command("fixture_mutate")]
+    else:
+        commands = [Command("fixture_mutate"), Command(fault)]
+    result = run_session(SHELL, commands, fixtures=EXTERNAL_FIXTURES, timeout=1)
+    assert (
+        result.reason
+        == {"stream": "TIMEOUT", "crash": "EOF", "exception": "ERROR"}[fault]
+    )
+    assert (
+        observation(result, "copied.txt", "after").contents
+        == EXTERNAL_FIXTURES[0].contents
+    )
+    assert observation(result, "removable.txt", "after").exists is False
+    assert_released(result, owned_sessions)
+
+
+def test_fixture_partial_preparation_error(monkeypatch, owned_sessions):
+    from cwushell_test import fixtures
+
+    def fail(directory, plan):
+        (directory / plan[0].path).write_bytes(b"partial")
+        raise PermissionError("injected fixture write denied")
+
+    monkeypatch.setattr(fixtures, "prepare", fail)
+    result = run_session(SHELL, [Command("unused")], fixtures=EXTERNAL_FIXTURES)
+    assert result.reason == "ERROR"
+    assert result.error is not None and "fixture write denied" in result.error
+    assert result.notes and result.working_directory in result.notes[0]
+    assert result.undispatched == ["unused"]
+    assert owned_sessions == []
+    assert observation(result, "source.txt", "before").contents == b"partial"
+    assert observation(result, "source.txt", "after").contents == b"partial"
+    assert observation(result, "removable.txt", "before").exists is False
+    assert not Path(result.working_directory).exists()
+
+
+@pytest.mark.parametrize("command", ["fixture_fifo", "fixture_symlink"])
+def test_fixture_nonregular_observations_are_bounded(command, owned_sessions):
+    result = run_session(
+        SHELL, [Command(command)], fixtures=EXTERNAL_FIXTURES, timeout=1
+    )
+    item = observation(result, "copied.txt", "after")
+    assert item.exists is True
+    assert item.contents is None
+    assert item.error is not None and "Not a regular file" in item.error
+    assert_released(result, owned_sessions)
+
+
+def test_fixture_observation_error_retains_existence(monkeypatch, owned_sessions):
+    from cwushell_test import fixtures
+
+    original = fixtures.os.open
+
+    def deny(path, flags, *args, **kwargs):
+        if Path(path).name == "source.txt":
+            raise PermissionError("injected read denied")
+        return original(path, flags, *args, **kwargs)
+
+    monkeypatch.setattr(fixtures.os, "open", deny)
+    result = run_session(SHELL, fixtures=EXTERNAL_FIXTURES, timeout=1)
+    assert result.reason == "COMPLETED"
+    for phase in ("before", "after"):
+        item = observation(result, "source.txt", phase)
+        assert item.exists is True
+        assert item.error is not None and "injected read denied" in item.error
+        assert (
+            observation(result, "removable.txt", phase).contents
+            == EXTERNAL_FIXTURES[1].contents
+        )
+    assert_released(result, owned_sessions)
+
+
+@pytest.mark.parametrize(
+    "path", ["../outside", "/absolute", "nested/file", ".", "..", ""]
+)
+def test_fixture_unsafe_names_rejected_before_launch(path, owned_sessions):
+    with pytest.raises(ValueError, match="relative names"):
+        run_session(SHELL, fixtures=[Fixture(path, "absent")])
+    assert owned_sessions == []
+
+
+def test_fixture_launch_failure_retains_observations(tmp_path):
+    result = run_session(tmp_path / "missing-target", fixtures=EXTERNAL_FIXTURES)
+    assert result.reason == "ERROR"
+    assert result.pid is None
+    assert result.error is not None and "missing-target" in result.error
+    assert (
+        observation(result, "source.txt", "after").contents
+        == EXTERNAL_FIXTURES[0].contents
+    )
+    assert not Path(result.working_directory).exists()
+
+
+def test_fixture_interruption_snapshots_before_propagating(monkeypatch, owned_sessions):
+    from cwushell_test import fixtures
+
+    observations = []
+    original = fixtures.snapshot
+
+    def record(directory, path, phase):
+        item = original(directory, path, phase)
+        observations.append((directory, item))
+        return item
+
+    def interrupt(self, prompt, deadline):
+        raise KeyboardInterrupt
+
+    monkeypatch.setattr(fixtures, "snapshot", record)
+    monkeypatch.setattr(pty._Reader, "wait", interrupt)
+    with pytest.raises(KeyboardInterrupt):
+        run_session(SHELL, fixtures=EXTERNAL_FIXTURES)
+    assert [item.phase for directory, item in observations] == ["before"] * 3 + [
+        "after"
+    ] * 3
+    assert owned_sessions[-1].closed
+    assert all(not directory.exists() for directory, item in observations)
+
+
+def test_fixture_empty_truncated_and_unknown_observations(tmp_path, monkeypatch):
+    from cwushell_test import fixtures
+
+    (tmp_path / "empty").write_bytes(b"")
+    assert fixtures.snapshot(tmp_path, "empty", "before").contents == b""
+    (tmp_path / "large").write_bytes(b"x" * (fixtures.FILE_CAPTURE_BYTES + 1))
+    item = fixtures.snapshot(tmp_path, "large", "after")
+    assert item.contents == b"x" * fixtures.FILE_CAPTURE_BYTES
+    assert item.error is not None and "truncated" in item.error
+
+    def deny(self):
+        raise PermissionError("injected stat denied")
+
+    monkeypatch.setattr(Path, "lstat", deny)
+    item = fixtures.snapshot(tmp_path, "empty", "after")
+    assert item.exists is None
+    assert item.error is not None and "stat denied" in item.error

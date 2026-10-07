@@ -14,6 +14,9 @@ from typing import Mapping, Sequence
 
 import pexpect
 
+from cwushell_test import fixtures as session_fixtures
+from cwushell_test.fixtures import FileObservation, Fixture
+
 READ_BYTES = 4096
 CLEANUP_GRACE = 0.2  # TERM and KILL each get this bounded grace period.
 POLL_INTERVAL = 0.01
@@ -69,6 +72,10 @@ class Evidence:
     launch_seconds: float = 0.0
     interaction_seconds: float = 0.0
     cleanup_seconds: float = 0.0
+    fixtures: tuple[Fixture, ...] = ()
+    controlled_environment: dict[str, str | None] = field(default_factory=dict)
+    file_observations: tuple[FileObservation, ...] = ()
+    notes: tuple[str, ...] = ()
 
     @property
     def output(self) -> str:
@@ -257,12 +264,17 @@ def run_session(
     session_timeout: float | None = None,
     max_output_bytes: int = 1048576,
     environment: Mapping[str, str] | None = None,
+    fixtures: Sequence[Fixture] = (),
+    controlled_environment: Mapping[str, str | None] | None = None,
 ) -> Evidence:
     """Execute a finite plan in a fresh temporary directory and return evidence.
 
     Startup timeout permits the spec's first-command fallback. All later timeouts
     stop dispatch. EOF is recorded even when unexpected; it is never a timeout.
     An optional smaller total budget can stop a stateful sequence early.
+    Fixtures are prepared and observed before launch, then observed again after
+    process/PTY cleanup. Controlled environment None values remove inherited keys.
+    Terminal/locale settings always take precedence over caller environment values.
     """
     plan = tuple(commands)
     total = (1 + len(plan)) * timeout
@@ -280,16 +292,30 @@ def run_session(
         raise ValueError("expected prompts must be nonempty literals")
     if any("\n" in command.text or "\r" in command.text for command in plan):
         raise ValueError("commands must contain exactly one input line")
+    fixture_plan = tuple(fixtures)
+    session_fixtures.validate_fixtures(fixture_plan)
     executable = target.resolve()
     evidence = Evidence(max_output_bytes, undispatched=[c.text for c in plan])
     env = dict(os.environ if environment is None else environment)
-    env.update(TERM="dumb", LC_ALL="C", LANG="C")
+    evidence.fixtures = fixture_plan
+    evidence.controlled_environment = dict(controlled_environment or {})
+    evidence.controlled_environment.update(session_fixtures.TERMINAL_ENVIRONMENT)
+    for name, value in evidence.controlled_environment.items():
+        if value is None:
+            env.pop(name, None)
+        else:
+            env[name] = value
     child: pexpect.spawn | None = None
     started = time.monotonic()
     interaction_started = started
     with tempfile.TemporaryDirectory(prefix="cwushell-test-") as directory:
         evidence.working_directory = directory
         try:
+            session_fixtures.prepare(Path(directory), fixture_plan)
+            evidence.file_observations = tuple(
+                session_fixtures.snapshot(Path(directory), fixture.path, "before")
+                for fixture in fixture_plan
+            )
             child = pexpect.spawn(
                 str(executable),
                 cwd=directory,
@@ -360,8 +386,25 @@ def run_session(
         except Exception as exc:
             evidence.reason = "ERROR"
             evidence.error = f"{type(exc).__name__}: {exc}"
+            evidence.notes += (
+                f"Session preparation/execution in {directory}: {evidence.error}",
+            )
         finally:
             evidence.interaction_seconds = time.monotonic() - interaction_started
-            if child is not None:
-                _cleanup(child, evidence)
+            try:
+                if child is not None:
+                    _cleanup(child, evidence)
+            finally:
+                # A partial preparation failure still retains both available phases.
+                if not evidence.file_observations:
+                    evidence.file_observations = tuple(
+                        session_fixtures.snapshot(
+                            Path(directory), fixture.path, "before"
+                        )
+                        for fixture in fixture_plan
+                    )
+                evidence.file_observations += tuple(
+                    session_fixtures.snapshot(Path(directory), fixture.path, "after")
+                    for fixture in fixture_plan
+                )
     return evidence

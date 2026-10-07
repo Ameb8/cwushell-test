@@ -51,6 +51,8 @@ def input_lines():
 
 for line in input_lines():
     command = line.rstrip("\n")
+    if command.startswith("fixture_"):
+        from pathlib import Path
     if command.startswith("child_"):
         ready_read, ready_write = os.pipe()
         descendant = os.fork()
@@ -79,6 +81,32 @@ for line in input_lines():
                 signal.pause()
         show_prompt()
         continue
+    if command == "fixture_state":
+        emit(f"cwd={os.getcwd()}\n")
+        for name in (
+            "TERM",
+            "LC_ALL",
+            "LANG",
+            "CWUSHELL_TEST_EXPORT",
+            "CWUSHELL_TEST_UNSET",
+        ):
+            emit(f"{name}={os.environ.get(name, '<absent>')}\n")
+        emit(f"fixture_dir_empty={list(Path('fixture_dir').iterdir()) == []}\n")
+    if command == "fixture_mutate":
+        Path("copied.txt").write_bytes(Path("source.txt").read_bytes())
+        Path("source.txt").write_bytes(b"changed\x00bytes\r\n")
+        Path("removable.txt").unlink()
+    if command == "fixture_term":
+
+        def record_term(signum, frame):
+            Path("copied.txt").write_bytes(b"written during cleanup\n")
+            sys.exit(0)
+
+        signal.signal(signal.SIGTERM, record_term)
+    if command == "fixture_fifo":
+        os.mkfifo("copied.txt")
+    if command == "fixture_symlink":
+        os.symlink("/etc/passwd", "copied.txt")
     if command == "resist":
         signal.signal(signal.SIGTERM, signal.SIG_IGN)
         emit("ignoring TERM\n")

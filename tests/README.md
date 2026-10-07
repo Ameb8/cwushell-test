@@ -51,3 +51,10 @@ The case model/report checks are in `test_reporting.py`. Run
 for producer interfaces and the issue #3 acceptance mapping. These tests construct
 synthetic evidence without launching a target and exercise Markdown containment,
 concurrent execution observations, capture labels, fixtures, and report I/O.
+
+Fixture lifecycle checks also live in `test_pty_session.py`; select them with
+`task test -- tests/test_pty_session.py -k fixture`. They verify direct harness
+observations and session isolation, controlled initial environments, and snapshot
+ordering through real PTYs and synthetic filesystem changes, including changes
+during cleanup. See the [fixture lifecycle contract](../docs/pty-session.md) for
+the fixed fixture bytes, diagnostic behavior, and failure-path coverage.

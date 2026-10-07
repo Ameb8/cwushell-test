@@ -25,7 +25,12 @@ observed exit or crash. An initial TIMEOUT and later COMPLETED remain visible
 together. `case.summary` exposes identifiers, title, ordered labels and events,
 observed statuses, and dispatch counts for terminal presentation.
 
-Fixture collection (#10) supplies:
+Fixture collection (#10) supplies these fields on the returned PTY `Evidence`.
+`CaseEvidence` inherits them when its corresponding context fields are empty;
+explicitly supplied context remains supported. The shared models are defined in
+`cwushell_test.fixtures` and re-exported from `cwushell_test.evidence`.
+
+The fixture fields are:
 
 - `Fixture(path, kind, contents)`: initial file/directory/absent settings;
   file contents are bytes, and absent/directory fixtures have no contents.

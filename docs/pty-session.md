@@ -88,7 +88,7 @@ Targets resolve to absolute paths before launch and run in fresh
 `TemporaryDirectory` instances. The helper sets terminal size to 24×80 and
 `TERM=dumb`, `LC_ALL=C`, and `LANG=C`. Other environment values are inherited,
 or callers can provide a complete `environment` mapping. Scenario fixture
-preparation and file-state reporting will need their own seam in later tasks.
+preparation and file observations use the lifecycle seam described below.
 `working_directory` records the path, which is removed after cleanup.
 
 The forkpty launcher is verified at launch to create a session and group whose
@@ -255,3 +255,74 @@ Launch, interaction, and cleanup are measured separately. The tests enforce the
 0.5-second total interaction allowance and the separate 0.4-second cleanup
 allowance, each with the documented 0.25-second scheduling tolerance. These
 measurements do not extend the containment scope to detached descendants.
+
+## Session fixtures and observations (#10)
+
+`run_session` accepts `fixtures` (a sequence of `Fixture`) and
+`controlled_environment` (initial values, with `None` meaning absent). Use
+`cwushell_test.fixtures.EXTERNAL_FIXTURES` for each independent cat/cp/rm
+session, `CD_FIXTURES` for cd, `EXPORT_ENVIRONMENT` for export, and
+`UNSET_ENVIRONMENT` for unset. Scenario commands and suite registration remain
+with #4 and #9.
+
+The fixed file contents are exact UTF-8 bytes, including one final LF:
+
+| Path | Initial state |
+| --- | --- |
+| `source.txt` | `b"cwushell-test source fixture\n"` |
+| `removable.txt` | `b"cwushell-test removable fixture\n"` |
+| `copied.txt` | Absent |
+| `fixture_dir` (cd only) | Empty directory |
+
+Export starts with `CWUSHELL_TEST_EXPORT` absent; unset starts with
+`CWUSHELL_TEST_UNSET=fixture_value`. The helper copies the inherited environment
+(or caller's complete `environment` mapping), applies scenario controls, then
+forces `TERM=dumb`, `LC_ALL=C`, and `LANG=C`. Only the explicit scenario controls
+and terminal/locale values are recorded, without dumping inherited variables.
+
+Preparation occurs in the fresh temporary directory before spawning. Every
+fixture path gets a `before` snapshot, followed by an `after` snapshot after
+group cleanup, direct-child reaping, and PTY closure, before directory removal.
+No extra commands are dispatched for file observation. Each path must be a
+unique immediate relative name; invalid plans raise `ValueError` before launch.
+
+`Evidence` retains `fixtures`, `controlled_environment`, `file_observations`,
+and `notes` along with the removed `working_directory` path. `CaseEvidence`
+automatically uses this context when its corresponding context fields are empty;
+existing explicitly supplied report context remains supported. `Fixture` and
+`FileObservation` are defined in `fixtures` and remain importable from `evidence`.
+The renderer labels these snapshots as harness-collected evidence separately
+from combined terminal output and makes no before/after comparisons.
+
+Filesystem observation errors retain known existence and a path/reason
+diagnostic; unknown existence is `None`, an absent path is `False`, and empty
+file contents are `b""`. Directories have no collected contents. Symlinks and
+other nonregular files are recorded as existing with a diagnostic rather than
+followed/read. Nonblocking opens guard against replacement with a FIFO. Regular
+file reads retain at most 1 MiB per snapshot and explicitly report truncation.
+This file limit is independent of the configured terminal capture limit.
+Preparation/launch errors retain available snapshots and diagnostics without
+launching an unprepared session. Timeout, crash, and interaction exceptions
+retain snapshots; interruption propagates after cleanup and snapshot collection.
+
+Run `task test -- tests/test_pty_session.py -k fixture` for the focused checks.
+Isolation/mutation tests cover fixed initial bytes, absent/copied/changed/removed
+files and report adaptation. Environment/directory checks use a real PTY and a
+relative target path. The ordering check asserts no launch at `before`, a closed
+PTY and reaped child at `after`, and a still-existing directory for both; a TERM
+handler writes a file during cleanup to verify the observation boundary. Fault
+checks cover timeouts, crashes, execution exceptions, launch errors, partial
+preparation, and interruption. Read/stat errors, empty files, truncation, symlinks,
+and FIFOs verify diagnostic and bounded recording behavior. `task check` runs
+these together with the existing PTY lifecycle, CLI, and report checks.
+
+| Issue #10 criterion | Implementation and verification |
+| --- | --- |
+| Fresh documented source/removable files, initially absent copy | `EXTERNAL_FIXTURES`; `test_fixture_isolation_and_case_contract` verifies both independent sessions |
+| Direct before/after file evidence and cleanup ordering | `snapshot` in the existing `run_session` lifecycle; `test_fixture_snapshot_after_cleanup_before_removal` checks launch, reaping, PTY closure, and directory ordering |
+| Empty cd directory and controlled export/unset settings | `CD_FIXTURES`, `EXPORT_ENVIRONMENT`, `UNSET_ENVIRONMENT`; real PTY environment/directory test |
+| Invocation-relative paths, absolute launch, consistent terminal/environment | Existing CLI resolution stays intact; relative-target fixture test and existing CLI path tests verify it |
+| Diagnostics and cleanup after preparation/observation/execution faults | Partial preparation, read/stat error, launch failure, timeout/crash/exception, and interruption tests |
+| Separate harness observations and retained session/fixture settings | New helper context fields, automatic `CaseEvidence` adaptation, existing report renderer; fixture contract and report tests |
+| Synthetic observation tests without student grading | All fixture tests use `mock_shell.py` or temporary files; assertions check harness recording only |
+| Required repository gates | Focused fixture tests, `task test`, and `task check` |

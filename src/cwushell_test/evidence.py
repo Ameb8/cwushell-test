@@ -7,34 +7,10 @@ and scenario runners attach context here without comparing output to expectation
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
-from typing import Literal, Mapping
+from typing import Mapping
 
+from cwushell_test.fixtures import FileObservation, Fixture
 from cwushell_test.pty_session import Command, Evidence, Interaction
-
-
-@dataclass(frozen=True)
-class Fixture:
-    """Initial fixture description; contents are bytes, directories use None."""
-
-    path: str
-    kind: Literal["file", "directory", "absent"]
-    contents: bytes | None = None
-
-
-@dataclass(frozen=True)
-class FileObservation:
-    """Harness snapshot, including unavailable observations and diagnostics.
-
-    None for exists means existence could not be observed; None for contents
-    means contents were not collected. An empty byte string is an observed empty
-    file. After snapshots are taken after process/PTY cleanup, before removal.
-    """
-
-    path: str
-    phase: Literal["before", "after"]
-    exists: bool | None
-    contents: bytes | None = None
-    error: str | None = None
 
 
 @dataclass(frozen=True)
@@ -70,6 +46,17 @@ class CaseEvidence:
     controlled_environment: Mapping[str, str | None] = field(default_factory=dict)
     file_observations: tuple[FileObservation, ...] = ()
     notes: tuple[str, ...] = ()
+
+    def __post_init__(self) -> None:
+        # Explicit caller context remains supported by the existing report API.
+        for name in (
+            "fixtures",
+            "controlled_environment",
+            "file_observations",
+            "notes",
+        ):
+            if not getattr(self, name):
+                object.__setattr__(self, name, getattr(self.session, name))
 
     @property
     def summary(self) -> CaseSummary:
