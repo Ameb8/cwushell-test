@@ -12,8 +12,10 @@ Completing a case does not establish that a submission is implemented correctly.
 
 ## Development
 
-The CLI skeleton and bounded PTY interaction helper are implemented. Suite
-execution and Markdown reporting are still pending. The helper interface and
+The CLI skeleton, bounded PTY interaction helper, and case evidence/Markdown
+report pipeline are implemented. Suite execution and CLI integration remain
+pending. The [report contract](docs/reporting.md) describes the models and writer.
+The helper interface and
 focused fixture checks are documented in [docs/pty-session.md](docs/pty-session.md). Use Linux and Python 3.14+, as
 required by the current
 [canonical specification](docs/specs/cwushell-test.md).
@@ -25,7 +27,9 @@ src/cwushell_test/
 ├── __init__.py
 ├── __main__.py       # python -m cwushell_test
 ├── cli.py            # argument parsing, configuration, runner entry point
+├── evidence.py       # case, fixture, summary, and execution metadata contracts
 ├── pty_session.py    # bounded interaction and process cleanup
+├── reporting.py      # safe Markdown rendering and report writing
 └── py.typed          # type information for package consumers
 tests/
 ```

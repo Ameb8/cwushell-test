@@ -45,3 +45,9 @@ containment fixture temporarily enables Linux child-subreaper mode and reaps onl
 owned fixture groups; it restores the previous setting afterward. This avoids
 accumulating orphan zombies on hosts with a non-reaping PID 1 and is deliberately
 absent from the production helper.
+
+The case model/report checks are in `test_reporting.py`. Run
+`task test -- tests/test_reporting.py`; see the [report contract](../docs/reporting.md)
+for producer interfaces and the issue #3 acceptance mapping. These tests construct
+synthetic evidence without launching a target and exercise Markdown containment,
+concurrent execution observations, capture labels, fixtures, and report I/O.

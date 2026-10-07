@@ -4,7 +4,8 @@
 
 The development tooling is configured in `Taskfile.yml`, `pyproject.toml`, and
 `uv.lock`. The CLI skeleton, bounded PTY helper, and focused synthetic fixture
-tests are implemented; suite execution and reporting remain pending. See the
+tests and the case evidence/Markdown report pipeline are implemented; suite
+execution and CLI integration remain pending. See the [report contract](reporting.md) and
 [PTY interface](pty-session.md) for the helper contract and measured bounds. All verification commands now have meaningful sources
 and tests to check. The temporary runner validates configuration and exits 1
 without executing a target or writing a report; see the [README](../README.md).
