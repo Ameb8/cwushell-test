@@ -10,8 +10,8 @@ from pathlib import Path
 
 import pytest
 
-import pty_session as pty
-from pty_session import Command, clean_output, run_session
+from cwushell_test import pty_session as pty
+from cwushell_test.pty_session import Command, clean_output, run_session
 
 SHELL = Path(__file__).parent / "fixtures" / "mock_shell.py"
 pytestmark = pytest.mark.integration
@@ -220,13 +220,18 @@ def test_mismatched_command_prompt_stops_sequence_with_evidence():
     assert "student response\ncwushell>" in result.output
 
 
-def test_startup_only_missing_prompt_is_bounded():
+def test_startup_only_missing_prompt_is_bounded(owned_sessions):
+    # Allow the synthetic Python target to initialize before asserting its text.
+    timeout = 1.0
     result = run_session(
-        SHELL, timeout=0.15, environment={**os.environ, "MOCK_MODE": "hang"}
+        SHELL, timeout=timeout, environment={**os.environ, "MOCK_MODE": "hang"}
     )
     assert result.reason == "TIMEOUT"
     assert result.dispatched == []
     assert result.output == "startup evidence\n"
+    assert result.interaction_seconds <= timeout + SCHEDULING_TOLERANCE
+    assert result.cleanup_seconds <= 2 * pty.CLEANUP_GRACE + SCHEDULING_TOLERANCE
+    assert_released(result, owned_sessions)
 
 
 def test_exception_releases_session_preserves_evidence(monkeypatch, owned_sessions):

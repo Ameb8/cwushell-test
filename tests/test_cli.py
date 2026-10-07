@@ -6,9 +6,14 @@ from pathlib import Path
 
 import pytest
 
-import cwushell_test as cli
+from cwushell_test import cli
 
-ROOT = Path(__file__).resolve().parents[1]
+
+@pytest.fixture(params=["module", "console"])
+def invocation(request):
+    if request.param == "module":
+        return [sys.executable, "-m", "cwushell_test"]
+    return [str(Path(sys.executable).with_name("cwushell-test"))]
 
 
 @pytest.fixture
@@ -19,10 +24,9 @@ def target(tmp_path: Path) -> Path:
     return binary
 
 
-@pytest.mark.parametrize("entrypoint", ["cwushell_test.py", "cwushell-test"])
-def test_help_without_target(entrypoint, tmp_path: Path):
+def test_help_without_target(invocation, tmp_path: Path):
     result = subprocess.run(
-        [sys.executable, str(ROOT / entrypoint), "--help"],
+        invocation + ["--help"],
         cwd=tmp_path,
         capture_output=True,
         text=True,
@@ -164,17 +168,13 @@ def test_help_bypasses_environment_validation(monkeypatch, capsys):
     assert capsys.readouterr().err == ""
 
 
-@pytest.mark.parametrize("entrypoint", ["cwushell_test.py", "cwushell-test"])
-def test_stub_does_not_execute_or_write_report(entrypoint, target: Path):
-    command = [str(ROOT / entrypoint)]
-    if entrypoint.endswith(".py"):
-        command.insert(0, sys.executable)
+def test_stub_does_not_execute_or_write_report(invocation, target: Path):
     output = target.parent / "existing report.md"
     output.write_text("preserve existing evidence", encoding="utf-8")
     result = subprocess.run(
-        command + [str(target), "-o", str(output)],
+        invocation + [str(target), "-o", str(output)],
         cwd=target.parent,
-        # Ensure the launcher selects the same interpreter as the test runner.
+        # Both installed entry points run from outside the repository.
         env={"PATH": str(Path(sys.executable).parent)},
         capture_output=True,
         text=True,
