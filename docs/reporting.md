@@ -109,17 +109,54 @@ case evidence traversal. HTML escapes every variable value into text, preserves
 preformatted evidence and command whitespace, and embeds its CSS and navigation
 script without external assets.
 
-The initial view shows case counts and observed execution label counts per suite.
-Suites, cases, and evidence sections use nested native `details`/`summary`
-elements, collapsed initially. Each suite contains the complete case summary table;
-case links reveal the corresponding case. Expand/collapse controls and printing
-use a local script; individual disclosures work with scripting disabled. These
-counts and labels describe observations only.
+The initial view is a scan table with every case in report order across T1–T6.
+Each row shows its identifier and description, fully dispatched inputs, remaining
+undispatched inputs (including potentially partial dispatch), execution labels,
+observed exit status or terminating signal, capture notes, and a short combined
+stdout + stderr terminal preview. Exit statuses are observations, including
+intentional exits; printed diagnostics remain evidence rather than harness
+judgments. Startup timeouts remain visible even when later execution completes.
+Cleanup signals do not count as observed terminating signals.
+
+Previews show at most three lines and 480 characters. A shortened preview says
+that more captured output is available in full evidence. This is separate from
+capture truncation, which labels the retained raw-byte prefix, configured limit,
+and discarded further output. Whitespace remains preformatted; actual input
+tabs appear as `\t`, and literal backslashes as `\\`.
+
+Each case has a keyboard-accessible native **Read full evidence** disclosure.
+Opening it exposes all existing evidence sections: full retained output, planned
+and dispatched commands and wait targets, session context, initial fixtures and
+controlled environment, file observations, capture notes, execution events, and
+cleanup diagnostics. Evidence sections can be collapsed individually. Execution
+metadata is available above the table. Expand all / Collapse all controls are
+available, and printing includes all cases and evidence regardless of filters.
+
+Search matches case identifiers, descriptions, original and escaped inputs,
+full retained output (including text beyond the preview), file observations,
+session context, and execution/cleanup diagnostics. Suite and Show filters combine
+with search; Show can select timeouts / terminating signals or unreviewed cases.
+The live count reports matching cases out of the total and the total reviewed.
+Checking **Reviewed** means the reviewer inspected the case; it assigns no
+correctness status or grade. Review progress is held only in the current page
+and **resets on reload**. Filtering preserves review and disclosure state.
+
+All styles and scripts are embedded; local `file://` reports need no network or
+server. Without JavaScript, the entire table, metadata, and native evidence
+disclosures remain usable; search, filters, and review tracking are hidden.
+On smaller screens, controls wrap and the table scrolls horizontally in a
+keyboard-focusable region. Evidence text wraps and full terminal output can be
+scrolled with the keyboard. Variable content is escaped as text; scripts do not
+interpret evidence as HTML.
 
 Run `task test -- tests/test_html_reporting.py tests/test_cli.py` for evidence
-preservation, hostile text escaping, disclosure nesting, format selection,
-default destinations, explicit paths, and write errors. The full synthetic HTML
-CLI run in `tests/test_runner.py` verifies all 58 cases reach the HTML report.
+preservation, hostile text escaping, report order, preview/capture distinctions,
+input whitespace, event filter classification, native disclosure structure,
+format selection, default destinations, explicit paths, and write errors. The
+full synthetic HTML CLI run in `tests/test_runner.py` verifies all 58 cases reach
+the HTML report. Browser verification should also exercise combined filters,
+search beyond previews and in file/cleanup evidence, review/reload behavior,
+keyboard disclosures, printing, and small-screen scrolling on local files.
 
 ## Verification of issue #3
 
