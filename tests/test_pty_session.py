@@ -7,12 +7,13 @@ import shutil
 import signal
 import sys
 import time
+from datetime import datetime, timezone
 from pathlib import Path
 
 import pytest
 
 from cwushell_test import pty_session as pty
-from cwushell_test.evidence import CaseEvidence
+from cwushell_test.evidence import CaseEvidence, ExecutionMetadata, Report
 from cwushell_test.fixtures import (
     CD_FIXTURES,
     EXPORT_ENVIRONMENT,
@@ -21,6 +22,7 @@ from cwushell_test.fixtures import (
     Fixture,
 )
 from cwushell_test.pty_session import Command, clean_output, run_session
+from cwushell_test.reporting import render_report
 
 SHELL = Path(__file__).parent / "fixtures" / "mock_shell.py"
 pytestmark = pytest.mark.integration
@@ -195,6 +197,113 @@ def test_prompt_synchronization_after_capture_truncation():
     assert result.dispatched == ["flood", "exit"]
     assert result.max_output_bytes == 17
     assert result.exit_status == 42
+
+
+@pytest.mark.parametrize(
+    "command", ["documentation", "documentation_line", "documentation_ansi"]
+)
+@pytest.mark.parametrize("limit", [1048576, 17])
+def test_documentation_prompt_mentions_do_not_finish_or_dispatch(
+    command, limit, owned_sessions
+):
+    result = run_session(
+        SHELL,
+        [Command(command), Command("hello"), Command("exit", None)],
+        timeout=1,
+        max_output_bytes=limit,
+        environment={**os.environ, "MOCK_MODE": "ansi"},
+    )
+    assert result.reason == "EOF"
+    assert [event.reason for event in result.interactions] == [
+        "PROMPT",
+        "PROMPT",
+        "PROMPT",
+        "EOF",
+    ]
+    assert result.dispatched == [command, "hello", "exit"]
+    assert result.undispatched == []
+    assert result.exit_status == 42
+    assert len(result.raw_output) <= limit
+    assert result.truncated == (limit == 17)
+    if limit > 17:
+        assert "INTERLEAVED" not in result.output
+        assert "CPU SWITCHES\nMEMORY SWITCHES\n" in result.output
+        assert (
+            "SEE ALSO\n    manual <command>, bash(1), sh(1)\ncwushell>" in result.output
+        )
+        assert result.output.endswith("student response\ncwushell>goodbye\n")
+    assert result.interaction_seconds <= 4 + SCHEDULING_TOLERANCE
+    assert_released(result, owned_sessions)
+
+
+def test_documentation_capture_completes_through_final_prompt(owned_sessions):
+    result = run_session(SHELL, [Command("documentation")], timeout=1)
+    assert result.reason == "COMPLETED"
+    assert not result.truncated
+    assert result.output.endswith(
+        "SEE ALSO\n    manual <command>, bash(1), sh(1)\ncwushell>"
+    )
+    assert_released(result, owned_sessions)
+
+
+@pytest.mark.parametrize("limit", [1048576, 17])
+def test_prompt_mention_without_return_times_out_and_reaches_report(
+    limit, owned_sessions
+):
+    commands = (Command("documentation_never"), Command("never sent"))
+    result = run_session(SHELL, commands, timeout=0.3, max_output_bytes=limit)
+    assert result.reason == "TIMEOUT"
+    assert result.interactions[-1].reason == "TIMEOUT"
+    assert result.dispatched == ["documentation_never"]
+    assert result.undispatched == ["never sent"]
+    assert result.interaction_seconds <= 0.6 + SCHEDULING_TOLERANCE
+    assert result.cleanup_seconds <= 2 * pty.CLEANUP_GRACE + SCHEDULING_TOLERANCE
+    assert len(result.raw_output) <= limit
+    case = CaseEvidence("T5.manual", "T5", "manual", commands, result)
+    assert "TIMEOUT" in case.summary.outcomes
+    assert "COMPLETED" not in case.summary.outcomes
+    metadata = ExecutionMetadata(
+        datetime.now(timezone.utc), SHELL, "synthetic", "Linux", 0.3, limit
+    )
+    markdown = render_report(Report(metadata, (case,)))
+    assert "TIMEOUT" in markdown and "never sent" in markdown
+    assert ("TRUNCATED:" in markdown) == (limit == 17)
+    assert "Prompt synchronization was not established" in markdown
+    assert_released(result, owned_sessions)
+    later = run_session(SHELL, [Command("hello")], timeout=1)
+    assert later.reason == "COMPLETED"
+    assert_released(later, owned_sessions)
+
+
+@pytest.mark.parametrize("custom", ["custom>", "two words> ", "?"])
+def test_documentation_mentions_changed_prompt_and_reset(custom, owned_sessions):
+    result = run_session(
+        SHELL,
+        [
+            Command(f"prompt {custom}", custom),
+            Command("documentation", custom),
+            Command("prompt"),
+            Command("documentation"),
+        ],
+        timeout=1,
+    )
+    assert result.reason == "COMPLETED"
+    assert all(event.reason == "PROMPT" for event in result.interactions)
+    assert f"restore default prompt '{custom}'." in result.output
+    assert result.output.count("SEE ALSO\n") == 2
+    assert result.output.endswith("sh(1)\ncwushell>")
+    assert_released(result, owned_sessions)
+
+
+@pytest.mark.parametrize("command", ["inline_prompt", "late_prompt"])
+def test_uncertain_prompt_does_not_extend_deadline(command, owned_sessions):
+    result = run_session(SHELL, [Command(command), Command("never sent")], timeout=0.3)
+    assert result.output.endswith("cwushell>")
+    assert result.reason == "TIMEOUT"
+    assert result.interactions[-1].reason == "TIMEOUT"
+    assert result.undispatched == ["never sent"]
+    assert result.interaction_seconds <= 0.6 + SCHEDULING_TOLERANCE
+    assert_released(result, owned_sessions)
 
 
 @pytest.mark.parametrize("mode", ["normal", "missing", "hang"])
