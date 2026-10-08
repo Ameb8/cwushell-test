@@ -20,7 +20,7 @@ The program does not score implementations or determine whether their stdout is 
 - **Automated Execution:** Execute a standardized test suite against a pre-compiled `cwushell` binary without requiring manual input entry.
 - **Fault-Tolerant Isolation:** Run every test case in an independent process session to prevent crashes, memory faults, or deadlocks in one test from contaminating others.
 - **Defensive Timeout Enforcement:** Enforce strict wall-clock time limits on all interactions to neutralize infinite loops, unhandled EOF hangs, and deadlocks.
-- **Readable Markdown Reporting:** Generate an evidence-backed Markdown report per test run that displays test cases and captured student outputs for manual review, without scores or automated correctness judgments.
+- **Readable Evidence Reporting:** Generate an evidence-backed Markdown or HTML report per test run that displays test cases and captured student outputs for manual review, without scores or automated correctness judgments.
 
 ---
 
@@ -45,16 +45,17 @@ The CLI must use Python’s standard-library `argparse`, including generated hel
 
 ### 3.1 Synopsis & Usage
 ```bash
-cwushell-test [-h] [-o OUTPUT] [--timeout SECONDS] [--max-output-bytes BYTES] [target]
+cwushell-test [-h] [-o OUTPUT] [--report-format {markdown,html}] [--timeout SECONDS] [--max-output-bytes BYTES] [target]
 ```
-*(or via Python: `python3 -m cwushell_test [-h] [-o OUTPUT] [--timeout SECONDS] [--max-output-bytes BYTES] [target]`)*
+*(or via Python: `python3 -m cwushell_test [-h] [-o OUTPUT] [--report-format {markdown,html}] [--timeout SECONDS] [--max-output-bytes BYTES] [target]`)*
 
 ### 3.2 Arguments and Options
 
 | Argument / Flag | Type | Default | Description |
 |---|---|---|---|
 | `target` | Positional (optional) | `./cwushell` | Path to the pre-compiled student shell binary to execute. |
-| `-o`, `--output` | Option (`FILE`) | `cwushell_test_report.md` | Path for the generated Markdown test report. |
+| `-o`, `--output` | Option (`FILE`) | `cwushell_test_report.md` | Path for the generated test report; defaults to `cwushell_test_report.html` when HTML is selected. An explicit path is used without changing its extension. |
+| `--report-format` | Option (`markdown`, `html`) | `markdown` | Select the report format independently of the output filename. |
 | `--timeout` | Option (`SECONDS`) | `10.0` | Positive, finite number of seconds allowed for the initial prompt wait and for each dispatched command, including single-command scenarios and exit commands. |
 | `--max-output-bytes` | Option (`BYTES`) | `1048576` (1 MiB) | Positive integer limiting retained raw terminal-output bytes per session, before decoding, ANSI sanitization, or line-ending normalization. |
 | `-h`, `--help` | Flag | — | Display help message with usage instructions and defaults. |
@@ -66,7 +67,7 @@ cwushell-test [-h] [-o OUTPUT] [--timeout SECONDS] [--max-output-bytes BYTES] [t
 
 ### 3.4 Terminal Output and Execution Behavior
 - **Execution Progress:** Displays execution header (target binary, host architecture) followed by live status updates as each isolated test suite (`T1` through `T6`) executes.
-- **Terminal Summary:** Prints a summary of executed test cases and execution events (such as timeouts or crashes), followed by the destination path of the generated Markdown report. No scores or correctness statuses are printed.
+- **Terminal Summary:** Prints a summary of executed test cases and execution events (such as timeouts or crashes), followed by the format and destination path of the generated report. No scores or correctness statuses are printed.
 
 ---
 
@@ -170,9 +171,11 @@ Record these initial environment settings and directory fixtures in the report. 
 ## 7. Output Reporting Specification
 
 ### 7.1 Report Generation
-Running `cwushell-test` automatically generates a single formatted Markdown report (defaulting to `cwushell_test_report.md`, customizable via the `-o` / `--output` flag).
+Running `cwushell-test` automatically generates a single report. Markdown is the default (`cwushell_test_report.md`); `--report-format html` selects standalone HTML and defaults to `cwushell_test_report.html`. Customize either destination via `-o` / `--output`. Output extensions do not infer or override the selected format.
 
-### 7.2 Markdown Report Structure
+HTML must contain the same evidence as Markdown, with a compact suite overview and independently collapsible suites, cases, and evidence sections. Include per-case summaries, links to detailed cases, and expand/collapse controls. Use native disclosures so individual sections work without JavaScript. Embed styles and scripts locally without external dependencies. Escape all evidence, metadata, and diagnostics as text; target output must not become executable HTML.
+
+### 7.2 Report Structure
 The generated report must contain:
 
 1. **Header & Execution Metadata:**
@@ -188,7 +191,7 @@ The generated report must contain:
    - No grades, points, provisional scores, or `PASS`/`PARTIAL`/`FAIL` correctness statuses.
 3. **Detailed Evidence Sections (Per Test Case):**
    - **Dispatched Commands:** Exact commands sent to the shell.
-   - **Observed Terminal Output:** Captured terminal text from the student binary, cleaned of ANSI escapes and normalized to Unix line endings, formatted inside Markdown code blocks. PTY output may combine stdout and stderr; the report must identify it as terminal output rather than claim they are captured separately.
+   - **Observed Terminal Output:** Captured terminal text from the student binary, cleaned of ANSI escapes and normalized to Unix line endings, formatted inside Markdown code blocks or escaped HTML preformatted blocks. PTY output may combine stdout and stderr; the report must identify it as terminal output rather than claim they are captured separately.
    - **Capture Notes:** Whether terminal output was truncated, the configured byte limit, and the retained raw byte count for each session.
    - **Fixture Evidence (Where Applicable):** Relevant file existence and contents before launch and after process cleanup, collected by the harness and labeled separately from terminal output, without correctness judgments.
    - **Execution Notes:** Observed process exit status, terminating signal, timeout, incomplete command dispatch, and cleanup actions where applicable. Notes must not assess stdout correctness.
