@@ -216,3 +216,28 @@ def test_checkout_launcher_preserves_installed_package_imports():
     )
     assert result.returncode == 0, result.stderr
     assert result.stdout.strip() == "cwushell_test.cli"
+
+
+@pytest.mark.parametrize(
+    "report_format,extension", [("markdown", "md"), ("html", "html")]
+)
+@pytest.mark.parametrize("selected_path", [None, "report with spaces.custom"])
+def test_report_format_configuration(
+    target: Path, monkeypatch, report_format, extension, selected_path
+):
+    monkeypatch.chdir(target.parent)
+    argv = [str(target), "--report-format", report_format]
+    if selected_path is not None:
+        argv += ["-o", selected_path]
+    config = cli.validate_configuration(cli.create_parser().parse_args(argv))
+    assert config.report_format == report_format
+    assert config.output == target.parent / (
+        selected_path or f"cwushell_test_report.{extension}"
+    )
+
+
+def test_unknown_report_format_exits_two(capsys):
+    with pytest.raises(SystemExit) as error:
+        cli.main(["--report-format", "pdf"])
+    assert error.value.code == 2
+    assert "invalid choice" in capsys.readouterr().err

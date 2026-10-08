@@ -1,7 +1,8 @@
-"""Render evidence as inert Markdown and write the configured report path."""
+"""Shared evidence presentation, Markdown rendering, and report writing."""
 
 import re
 from pathlib import Path
+from typing import Protocol
 
 from cwushell_test.evidence import CaseEvidence, Report
 
@@ -41,9 +42,46 @@ def _commands(label: str, commands: list[str]) -> str:
     return result
 
 
-def _case(case: CaseEvidence, index: int) -> str:
+class EvidenceRenderer(Protocol):
+    """Presentation operations shared by both detailed evidence formats."""
+
+    def start_case(self, index: int) -> str: ...
+    def text(self, value: str) -> str: ...
+    def section(self, title: str) -> str: ...
+    def field(self, label: str, value: object) -> str: ...
+    def block(self, value: str) -> str: ...
+    def commands(self, label: str, commands: list[str]) -> str: ...
+    def finish_case(self) -> str: ...
+
+
+class MarkdownRenderer:
+    def start_case(self, index: int) -> str:
+        return f"### Case {index}\n\n"
+
+    def text(self, value: str) -> str:
+        return value
+
+    def section(self, title: str) -> str:
+        return f"#### {title}\n\n"
+
+    field = staticmethod(_field)
+    block = staticmethod(_block)
+    commands = staticmethod(_commands)
+
+    def finish_case(self) -> str:
+        return ""
+
+
+def _case(
+    case: CaseEvidence, index: int, renderer: EvidenceRenderer | None = None
+) -> str:
+    if renderer is None:
+        renderer = MarkdownRenderer()
+    _field = renderer.field
+    _block = renderer.block
+    _commands = renderer.commands
     session = case.session
-    result = f"### Case {index}\n\n"
+    result = renderer.start_case(index)
     for label, value in (
         ("Case identifier", case.case_id),
         ("Suite", case.suite_id),
@@ -51,9 +89,9 @@ def _case(case: CaseEvidence, index: int) -> str:
         ("Session working directory", session.working_directory),
     ):
         result += _field(label, value)
-    result += "#### Initial fixtures and controlled environment\n\n"
+    result += renderer.section("Initial fixtures and controlled environment")
     if not case.fixtures:
-        result += "No fixtures recorded.\n\n"
+        result += renderer.text("No fixtures recorded.\n\n")
     for fixture in case.fixtures:
         result += _field("Fixture path", fixture.path)
         result += _field("Fixture kind", fixture.kind)
@@ -62,7 +100,7 @@ def _case(case: CaseEvidence, index: int) -> str:
                 "Initial contents (exact bytes representation)", repr(fixture.contents)
             )
     if not case.controlled_environment:
-        result += "No controlled environment settings recorded.\n\n"
+        result += renderer.text("No controlled environment settings recorded.\n\n")
     for key, initial_value in case.controlled_environment.items():
         result += _field("Environment variable", key)
         result += _field(
@@ -78,40 +116,44 @@ def _case(case: CaseEvidence, index: int) -> str:
     result += _commands("Dispatched commands (fully sent)", session.dispatched)
     result += _commands("Remaining undispatched commands", session.undispatched)
     if session.undispatched:
-        result += (
+        result += renderer.text(
             "Incomplete command sequence. A command dispatch timeout can send a "
             "partial line; that input remains in the undispatched list.\n\n"
         )
 
-    result += "#### Combined PTY terminal output\n\n"
-    result += (
+    result += renderer.section("Combined PTY terminal output")
+    result += renderer.text(
         "Student terminal evidence; stdout and stderr share the PTY. "
         "ANSI sequences are removed, UTF-8 decoding replaces invalid bytes, "
         "and line endings are normalized to LF. Evidence text is not a harness judgment.\n\n"
     )
     result += _block(session.output) + "\n"
-    result += "#### Capture notes\n\n"
-    result += (
+    result += renderer.section("Capture notes")
+    result += renderer.text(
         "TRUNCATED: retained raw terminal-output prefix only.\n\n"
         if session.truncated
         else "Terminal capture was not truncated.\n\n"
     )
-    result += f"Configured raw-byte limit: {session.max_output_bytes}. Retained raw-byte count: {len(session.raw_output)}.\n\n"
-    result += "Events and command dispatch are recorded independently of capture truncation.\n\n"
+    result += renderer.text(
+        f"Configured raw-byte limit: {session.max_output_bytes}. Retained raw-byte count: {len(session.raw_output)}.\n\n"
+    )
+    result += renderer.text(
+        "Events and command dispatch are recorded independently of capture truncation.\n\n"
+    )
     if any(
         event.reason == "TIMEOUT"
         and event.waiting_for not in ("EOF", "command dispatch")
         for event in session.interactions
     ):
-        result += (
+        result += renderer.text(
             "Prompt synchronization was not established before a deadline. "
             "Retained evidence may end before command output finished; the "
             "capture-limit note describes byte retention only.\n\n"
         )
 
-    result += "#### Harness-collected fixture evidence\n\n"
+    result += renderer.section("Harness-collected fixture evidence")
     if not case.file_observations:
-        result += "No file observations recorded.\n\n"
+        result += renderer.text("No file observations recorded.\n\n")
     for observation in case.file_observations:
         result += _field("Observed path", observation.path)
         result += _field(
@@ -125,7 +167,7 @@ def _case(case: CaseEvidence, index: int) -> str:
             "Unknown" if observation.exists is None else str(observation.exists),
         )
         if observation.contents is None:
-            result += "Contents were not collected.\n\n"
+            result += renderer.text("Contents were not collected.\n\n")
         else:
             result += _field(
                 "Contents (UTF-8, invalid bytes replaced)",
@@ -137,7 +179,7 @@ def _case(case: CaseEvidence, index: int) -> str:
         if observation.error is not None:
             result += _field("Observation diagnostic", observation.error)
 
-    result += "#### Execution and cleanup notes\n\n"
+    result += renderer.section("Execution and cleanup notes")
     result += _field("Observed execution labels", ", ".join(case.summary.outcomes))
     for index, event in enumerate(session.interactions, 1):
         result += _field(
@@ -152,7 +194,9 @@ def _case(case: CaseEvidence, index: int) -> str:
         and session.interactions[0].reason == "TIMEOUT"
         and session.dispatched
     ):
-        result += "Initial prompt timeout was retained; command dispatch continued using startup fallback.\n\n"
+        result += renderer.text(
+            "Initial prompt timeout was retained; command dispatch continued using startup fallback.\n\n"
+        )
     for label, execution_value in (
         ("Helper final reason", session.reason),
         ("Observed process exit status", session.exit_status),
@@ -171,21 +215,51 @@ def _case(case: CaseEvidence, index: int) -> str:
         result += _field(
             label, "Not observed" if execution_value is None else execution_value
         )
-    result += (
+    result += renderer.text(
         "Cleanup-phase statuses are separate from observed process termination.\n\n"
     )
     if not session.cleanup_actions:
-        result += "No cleanup actions recorded.\n\n"
+        result += renderer.text("No cleanup actions recorded.\n\n")
     for action in session.cleanup_actions:
         result += _field("Cleanup action", action)
     for note in case.notes:
         result += _field("Execution note", note)
-    return result
+    return result + renderer.finish_case()
+
+
+def _metadata_fields(report: Report) -> tuple[tuple[str, object], ...]:
+    metadata = report.metadata
+    return (
+        ("Execution timestamp", metadata.timestamp.isoformat()),
+        ("Target binary path", metadata.target),
+        ("Target architecture", metadata.target_architecture),
+        ("Host architecture", metadata.host_architecture),
+        ("OS kernel version", metadata.kernel_version),
+        ("Configured interaction timeout (seconds)", metadata.timeout),
+        ("Configured per-session capture limit (raw bytes)", metadata.max_output_bytes),
+    )
+
+
+def _summary_values(case: CaseEvidence) -> tuple[str, ...]:
+    summary = case.summary
+    events = "; ".join(
+        f"{'Startup' if event.command is None else 'Command'}: {event.reason}; wait target: {event.waiting_for}"
+        for event in summary.events
+    )
+    return (
+        summary.suite_id,
+        summary.case_id,
+        summary.title,
+        ", ".join(summary.outcomes),
+        events,
+        "Not observed" if summary.exit_status is None else str(summary.exit_status),
+        "Not observed" if summary.signal_status is None else str(summary.signal_status),
+        f"{summary.dispatched_count} / {summary.undispatched_count}",
+    )
 
 
 def render_report(report: Report) -> str:
     """Render all recorded cases without collecting metadata or launching a PTY."""
-    metadata = report.metadata
     result = "# CWUShell execution evidence\n\n"
     result += (
         "For manual review. Execution labels describe observations only. "
@@ -195,37 +269,13 @@ def render_report(report: Report) -> str:
         "Multiple observations can coexist, including TIMEOUT and COMPLETED.\n\n"
         "## Execution metadata\n\n"
     )
-    for label, value in (
-        ("Execution timestamp", metadata.timestamp.isoformat()),
-        ("Target binary path", metadata.target),
-        ("Target architecture", metadata.target_architecture),
-        ("Host architecture", metadata.host_architecture),
-        ("OS kernel version", metadata.kernel_version),
-        ("Configured interaction timeout (seconds)", metadata.timeout),
-        ("Configured per-session capture limit (raw bytes)", metadata.max_output_bytes),
-    ):
+    for label, value in _metadata_fields(report):
         result += _field(label, value)
     result += "## Execution summary\n\n"
     result += "| Suite | Case | Description | Observed execution labels | Events | Exit status | Signal | Fully dispatched / undispatched |\n"
     result += "| --- | --- | --- | --- | --- | --- | --- | --- |\n"
     for case in report.cases:
-        summary = case.summary
-        events = "; ".join(
-            f"{'Startup' if event.command is None else 'Command'}: {event.reason}; wait target: {event.waiting_for}"
-            for event in summary.events
-        )
-        values = (
-            summary.suite_id,
-            summary.case_id,
-            summary.title,
-            ", ".join(summary.outcomes),
-            events,
-            "Not observed" if summary.exit_status is None else str(summary.exit_status),
-            "Not observed"
-            if summary.signal_status is None
-            else str(summary.signal_status),
-            f"{summary.dispatched_count} / {summary.undispatched_count}",
-        )
+        values = _summary_values(case)
         result += "| " + " | ".join(_cell(value) for value in values) + " |\n"
     result += "\n## Detailed case evidence\n\n"
     for index, case in enumerate(report.cases, 1):
@@ -237,18 +287,28 @@ class ReportWriteError(Exception):
     """Actionable report I/O diagnostic for the workflow's exit-1 handling."""
 
 
-def write_report(report: Report, output: Path) -> Path:
-    """Write UTF-8 Markdown to the caller's selected path; return its absolute path.
+def write_report(report: Report, output: Path, report_format: str = "markdown") -> Path:
+    """Write the selected UTF-8 format; return the absolute destination.
 
     The workflow resolves paths relative to invocation before running sessions.
     Missing parent directories are reported, not silently created.
     """
+    if report_format == "html":
+        from cwushell_test.html_reporting import render_html_report
+
+        content = render_html_report(report)
+        label = "HTML"
+    elif report_format == "markdown":
+        content = render_report(report)
+        label = "Markdown"
+    else:
+        raise ValueError(f"Unknown report format: {report_format!r}")
     try:
         destination = output.resolve()
-        destination.write_text(render_report(report), encoding="utf-8", newline="\n")
+        destination.write_text(content, encoding="utf-8", newline="\n")
     except (OSError, UnicodeError, ValueError) as exc:
         raise ReportWriteError(
-            f"Cannot write Markdown report to {str(output)!r}: {exc}. "
+            f"Cannot write {label} report to {str(output)!r}: {exc}. "
             "Check that the parent directory exists and the destination is a writable file."
         ) from exc
     return destination

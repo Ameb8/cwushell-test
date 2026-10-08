@@ -34,5 +34,6 @@ assignment/
 # Local student binary and generated evidence
 /cwushell
 /cwushell_test_report.md
+/cwushell_test_report.html
 /reports/
 /transcripts/
