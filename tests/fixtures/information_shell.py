@@ -30,7 +30,7 @@ for line in sys.stdin:
             while True:
                 emit("x" * 4096)
         if command == "cpuinfo -n":
-            emit("x" * 100000)
+            emit("x" * 100000 + "\n")
     if mode == "help_events":
         if command.startswith("exit "):
             emit("help terminated\n")

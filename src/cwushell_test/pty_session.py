@@ -22,6 +22,7 @@ READ_BYTES = 4096
 CLEANUP_GRACE = 0.2  # TERM and KILL each get this bounded grace period.
 POLL_INTERVAL = 0.01
 EOF_STATUS_GRACE = 0.05
+PROMPT_SETTLE_SECONDS = 0.05
 # Complete ECMA-48 CSI, control strings, and ordinary ESC sequences. Streaming
 # state below also removes an incomplete escape at the retained prefix boundary.
 ANSI = re.compile(
@@ -138,16 +139,33 @@ class _Reader:
 
     def wait(self, prompt: str | None, deadline: float) -> str:
         needle = prompt.encode("utf-8") if prompt is not None else None
-        tail = b""
+        # Track only the matching prefix of the current line, never whole lines.
+        # Each interaction starts at a virtual line boundary: the previously
+        # consumed prompt usually had no newline, and echo is disabled.
+        matched: int | None = 0
+        candidate_since: float | None = None
         while True:
-            remaining = deadline - time.monotonic()
+            now = time.monotonic()
+            remaining = deadline - now
             if remaining <= 0:
                 return "TIMEOUT"
+            if candidate_since is not None:
+                remaining = min(
+                    remaining,
+                    max(0.0, candidate_since + PROMPT_SETTLE_SECONDS - now),
+                )
             # Read the pexpect-owned descriptor directly. pexpect's read path
             # sets ptyprocess.flag_eof, which turns subsequent isalive() calls
             # into blocking waitpid even if a live process merely closed its TTY.
             readable, _, _ = select.select([self.child.child_fd], [], [], remaining)
             if not readable:
+                now = time.monotonic()
+                if (
+                    now < deadline
+                    and candidate_since is not None
+                    and now >= candidate_since + PROMPT_SETTLE_SECONDS
+                ):
+                    return "PROMPT"
                 return "TIMEOUT"
             try:
                 data = os.read(self.child.child_fd, READ_BYTES)
@@ -165,10 +183,22 @@ class _Reader:
                 self.evidence.truncated = True
             cleaned = self.cleaner.feed(data)
             if needle is not None:
-                window = tail + cleaned
-                if needle in window:
-                    return "PROMPT"
-                tail = window[-(len(needle) - 1) :] if len(needle) > 1 else b""
+                for value in cleaned:
+                    if value in b"\r\n":
+                        matched = 0
+                    elif matched is not None:
+                        if matched < len(needle) and value == needle[matched]:
+                            matched += 1
+                        elif matched != len(needle) or value not in b" \t":
+                            matched = None
+                # Wait for a quiet, unterminated line containing only the prompt
+                # and optional horizontal padding. ANSI fragments are not yet
+                # a complete candidate. Further bytes restart the settling wait.
+                candidate_since = (
+                    time.monotonic()
+                    if matched == len(needle) and self.cleaner.state == "text"
+                    else None
+                )
 
 
 def _dispatch(child: pexpect.spawn, text: str, deadline: float) -> bool:

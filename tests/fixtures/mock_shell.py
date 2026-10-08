@@ -134,7 +134,34 @@ for line in input_lines():
             select.select([], [], [], 3600)
     if command == "crash":
         os.kill(os.getpid(), 11)
-    if command == "slow":
+    if command.startswith("documentation"):
+        emit("MANUAL\n")
+        if command == "documentation_line":
+            # A read may end at a whole prompt that is actually a line example.
+            emit(prompt)
+            ready, _, _ = select.select([0], [], [], 0.02)
+            emit("\n")
+        else:
+            emit("    restore default prompt '")
+            if command == "documentation_ansi":
+                emit("\x1b[32m")
+            emit(prompt[:4])
+            ready, _, _ = select.select([0], [], [], 0.08)
+            emit(prompt[4:])
+            if command == "documentation_ansi":
+                emit("\x1b[0m")
+            # Leave the embedded prompt at the end of a read longer than the
+            # settling interval: its preceding documentation must disqualify it.
+            early, _, _ = select.select([0], [], [], 0.08)
+            ready = ready or early
+            emit("'.\r\n")
+        emit("INTERLEAVED\n" if ready else "CPU SWITCHES\nMEMORY SWITCHES\n")
+        if command == "documentation_never":
+            while True:
+                emit("still documenting\n")
+                time.sleep(0.02)
+        emit("SEE ALSO\n    manual <command>, bash(1), sh(1)\n")
+    elif command == "slow":
         for part in ("partial ", "output\n"):
             emit(part)
             time.sleep(0.08)
@@ -147,6 +174,10 @@ for line in input_lines():
             time.sleep(0.03)
     elif command == "flood":
         emit("x" * 100000 + "\n")
+    elif command == "inline_prompt":
+        emit("output without a line boundary")
+    elif command == "late_prompt":
+        select.select([], [], [], 0.27)
     elif command.startswith("prompt "):
         prompt = command[7:]
     elif command == "prompt":

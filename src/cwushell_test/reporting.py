@@ -98,6 +98,16 @@ def _case(case: CaseEvidence, index: int) -> str:
     )
     result += f"Configured raw-byte limit: {session.max_output_bytes}. Retained raw-byte count: {len(session.raw_output)}.\n\n"
     result += "Events and command dispatch are recorded independently of capture truncation.\n\n"
+    if any(
+        event.reason == "TIMEOUT"
+        and event.waiting_for not in ("EOF", "command dispatch")
+        for event in session.interactions
+    ):
+        result += (
+            "Prompt synchronization was not established before a deadline. "
+            "Retained evidence may end before command output finished; the "
+            "capture-limit note describes byte retention only.\n\n"
+        )
 
     result += "#### Harness-collected fixture evidence\n\n"
     if not case.file_observations:

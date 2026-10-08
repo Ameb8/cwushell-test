@@ -58,12 +58,32 @@ sequences (including incomplete sequences at truncation), and normalizes CRLF
 and CR to LF. Stdout and stderr are combined terminal output. Terminal echo is
 disabled at launch and explicitly before input; dispatched commands are recorded
 separately and never inferred from output. A target can itself print its input.
-The streaming reader retains at most one 4096-byte read and a prompt-sized tail
+The streaming reader retains at most one 4096-byte read and a prompt-prefix counter
 besides the bounded evidence prefix; it does not use pexpect's accumulating
 `expect` buffer. Reads use deadline-bound descriptor readiness and nonblocking
 `os.read` on the pexpect-owned PTY; this avoids ptyprocess changing to blocking
 `waitpid` after EOF from a still-live process. Unterminated terminal control
 strings consume constant state.
+
+Prompt matching requires the expected literal to occupy the whole current
+unterminated line, with optional trailing spaces/tabs, after streaming ANSI
+removal. CR and LF establish line boundaries. Matching starts at a logical line
+boundary for each interaction, since the previous prompt need not end in LF and
+input echo is disabled. Quoted, indented, or embedded prompt examples do not
+qualify, even when split across reads. A candidate must remain without further
+terminal bytes for 0.05 seconds; this wait consumes the original deadline.
+Further output invalidates or restarts the candidate, and incomplete ANSI
+sequences cannot qualify. EOF remains EOF, including during settling.
+
+This is a conservative text synchronization rule, not a semantic readiness
+protocol. Ordinary output that exactly imitates an isolated prompt and pauses
+can be indistinguishable from a shell awaiting input. A prompt appended directly
+to other output without a line boundary is uncertain and times out. Reports
+retain that observation and note that lack of byte-limit truncation does not
+prove command output finished. `documentation*` fixture commands and the
+documentation regression tests cover split/styled examples, whole-line examples,
+shared-session pacing, custom prompts, deadline expiry, report notes, and bounded
+capture followed by a genuine returned prompt.
 
 `reason` is `COMPLETED` (observed final prompt), `EOF`, `TIMEOUT`, or `ERROR`.
 `interactions` records startup and command events with the relevant wait target.
