@@ -19,7 +19,7 @@ remain argparse exit 2. Missing output parents are diagnosed, not created.
 The runtime header identifies the absolute target and host architecture. Suite
 progress is flushed before execution, including when stdout is redirected.
 The terminal summary uses each `CaseEvidence.summary`, the same data used by
-the Markdown summary. It records simultaneous execution labels, interaction
+the Markdown or HTML summary. It records simultaneous execution labels, interaction
 events/wait targets, observed exit/signal, and dispatch counts. The destination
 message uses the actual absolute path returned by the report writer.
 

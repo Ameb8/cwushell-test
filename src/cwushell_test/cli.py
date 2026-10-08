@@ -17,6 +17,7 @@ class Configuration:
     output: Path
     timeout: float
     max_output_bytes: int
+    report_format: str = "markdown"
 
 
 def positive_seconds(value: str) -> float:
@@ -53,7 +54,17 @@ def create_parser() -> argparse.ArgumentParser:
         "target", nargs="?", default="./cwushell", help="Pre-compiled shell binary"
     )
     parser.add_argument(
-        "-o", "--output", default="cwushell_test_report.md", help="Markdown report path"
+        "-o",
+        "--output",
+        metavar="FILE",
+        default=argparse.SUPPRESS,
+        help="Report path (default: cwushell_test_report.md, or .html for HTML)",
+    )
+    parser.add_argument(
+        "--report-format",
+        choices=("markdown", "html"),
+        default="markdown",
+        help="Report format; HTML provides collapsible suites, cases, and sections",
     )
     parser.add_argument(
         "--timeout",
@@ -79,7 +90,10 @@ def validate_configuration(args: argparse.Namespace) -> Configuration:
     if sys.version_info < (3, 14):
         raise ValueError("Python 3.14+ is required; use task setup or Python 3.14+")
     target = Path(args.target).resolve()
-    output = Path(args.output).resolve()
+    extension = "html" if args.report_format == "html" else "md"
+    output = Path(
+        getattr(args, "output", f"cwushell_test_report.{extension}")
+    ).resolve()
     if not target.exists():
         raise ValueError(
             f"target does not exist: {target}; compile it externally first"
@@ -90,7 +104,9 @@ def validate_configuration(args: argparse.Namespace) -> Configuration:
         raise ValueError(
             f"target is not executable: {target}; check execute permissions"
         )
-    return Configuration(target, output, args.timeout, args.max_output_bytes)
+    return Configuration(
+        target, output, args.timeout, args.max_output_bytes, args.report_format
+    )
 
 
 def run(config: Configuration) -> int:

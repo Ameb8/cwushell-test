@@ -100,7 +100,7 @@ def execute(config: "Configuration") -> int:
                 )
     report = Report(metadata, tuple(cases))
     try:
-        destination = write_report(report, config.output)
+        destination = write_report(report, config.output, config.report_format)
     except ReportWriteError as exc:
         raise RuntimeError(str(exc)) from exc
     print(f"Execution summary: {len(report.cases)} cases", flush=True)
@@ -118,5 +118,6 @@ def execute(config: "Configuration") -> int:
             f"undispatched={summary.undispatched_count}",
             flush=True,
         )
-    print(f"Markdown report: {destination}", flush=True)
+    label = "HTML" if config.report_format == "html" else "Markdown"
+    print(f"{label} report: {destination}", flush=True)
     return 0

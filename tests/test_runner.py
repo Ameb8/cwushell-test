@@ -316,3 +316,49 @@ def test_report_write_error_exits_one(tmp_path: Path, capsys, recorded_groups):
     assert "parent directory" in terminal.err
     assert "Markdown report:" not in terminal.out
     assert_groups_released(recorded_groups, 58)
+
+
+@pytest.mark.timeout(180)
+def test_full_html_cli_inventory(tmp_path: Path, recorded_groups):
+    from html.parser import HTMLParser
+
+    class CaseLinks(HTMLParser):
+        def __init__(self):
+            super().__init__()
+            self.cases: list[str] = []
+
+        def handle_starttag(self, tag, attrs):
+            attributes = dict(attrs)
+            if tag == "details" and attributes.get("class") == "case":
+                self.cases.append(attributes["id"])
+
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "cwushell_test",
+            str(SHELL),
+            "--report-format",
+            "html",
+            "--timeout",
+            "1",
+            "--max-output-bytes",
+            "4096",
+        ],
+        cwd=tmp_path,
+        capture_output=True,
+        text=True,
+        timeout=150,
+    )
+    assert result.returncode == 0, result.stderr
+    assert result.stderr == ""
+    output = tmp_path / "cwushell_test_report.html"
+    assert f"HTML report: {output}" in result.stdout
+    document = output.read_text()
+    parser = CaseLinks()
+    parser.feed(document)
+    assert len(parser.cases) == len(INVENTORY) == 58
+    assert len(set(parser.cases)) == 58
+    for scenario in INVENTORY:
+        assert scenario.case_id in document
+    assert "EARLY INPUT" not in document

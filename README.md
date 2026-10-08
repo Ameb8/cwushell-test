@@ -12,7 +12,7 @@ Completing a case does not establish that a submission is implemented correctly.
 
 ## Development
 
-The complete CLI, bounded PTY interaction helper, and Markdown evidence
+The complete CLI, bounded PTY interaction helper, and Markdown/HTML evidence
 report pipeline are implemented, along with the independent
 [T3–T5 CPU, memory, and help scenarios](docs/information-scenarios.md) and
 [T1/T2/T6 prompt, termination, and system scenarios](docs/shell-scenarios.md).
@@ -33,7 +33,8 @@ src/cwushell_test/
 ├── evidence.py       # case, fixture, summary, and execution metadata contracts
 ├── information_scenarios.py # independent T3–T5 evidence cases
 ├── pty_session.py    # bounded interaction and process cleanup
-├── reporting.py      # safe Markdown rendering and report writing
+├── reporting.py      # shared evidence, Markdown rendering, and report writing
+├── html_reporting.py # standalone HTML with nested collapsible evidence
 ├── runner.py         # T1–T6 orchestration, metadata, progress, and summary
 ├── shell_scenarios.py # T1/T2/T6 evidence cases and state sequences
 └── py.typed          # type information for package consumers
@@ -65,14 +66,30 @@ uv run --locked python -m cwushell_test "/path with spaces/cwushell" \
   -o "reports/evidence with spaces.md" --timeout 5 --max-output-bytes 65536
 ```
 
+To create a collapsible HTML report, open the generated file in a browser:
+
+```bash
+uv run --locked cwushell-test ./cwushell --report-format html
+uv run --locked cwushell-test ./cwushell --report-format html -o reports/evidence.html
+```
+
+HTML shows a compact overview of T1–T6 with nested collapsible suites, cases,
+and evidence sections. Case summary links open the selected case; expand/collapse
+buttons control the whole report. The file works offline with no external assets,
+and individual sections remain usable with JavaScript disabled. It contains the
+same evidence as Markdown. Printing expands all sections when JavaScript is enabled.
+
 The optional target defaults to `./cwushell`; output defaults to
 `cwushell_test_report.md`, timeout to 10.0 seconds, and capture limit to 1048576
-bytes. Paths resolve relative to the invocation directory. Targets must already
+bytes. `--report-format` defaults to `markdown`; selecting `html` changes the
+default output to `cwushell_test_report.html`. An explicit `-o` path is used exactly
+as provided; its extension does not select the format. Paths resolve relative to
+the invocation directory. Targets must already
 be compiled externally and be regular executable files. Timeout must be positive
 and finite; capture limit must be a positive integer.
 
 The runner validates host utilities (including `printenv`), prints live T1–T6
-progress, and writes a complete Markdown report. The final terminal summary
+progress, and writes a complete Markdown or HTML report. The final terminal summary
 records each case's execution events and the actual report destination. Each
 independent case gets a fresh PTY and temporary directory; only documented state
 sequences share a session. Reports retain commands, combined terminal output,

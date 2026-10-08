@@ -1,8 +1,8 @@
-# Case evidence and Markdown reporting
+# Case evidence and report rendering
 
 `cwushell_test.evidence` defines the evidence contract for scenario runners,
 fixture collectors, and the workflow. `cwushell_test.reporting` renders and writes
-it without launching processes or collecting host metadata. The [workflow](workflow.md) supplies suite registration, metadata collection,
+it as Markdown or standalone HTML without launching processes or collecting host metadata. The [workflow](workflow.md) supplies suite registration, metadata collection,
 progress, and CLI exit handling.
 
 ## Producer interfaces
@@ -90,12 +90,36 @@ and diagnostics use these fences, and table punctuation/whitespace uses numeric
 HTML entities to prevent injected rows, links, headings, or HTML. A delimiter
 newline before the closing fence is formatting, not another observed output byte.
 
-`write_report` writes UTF-8 Markdown to the selected `Path` and returns its
+`write_report(report, output, report_format="markdown")` writes UTF-8 Markdown or HTML to the selected `Path` and returns its
 absolute destination. Resolve the configured output path relative to invocation
 before sessions begin. Paths with spaces work normally. Existing files are
 replaced as requested by `-o`; missing parent directories are not created.
 Filesystem/encoding errors raise `ReportWriteError` with the selected path,
 underlying reason, and remediation. The writer does not choose a CLI exit code.
+
+## HTML presentation
+
+Use `--report-format html` from the CLI. Its default destination is
+`cwushell_test_report.html`; `-o` selects any explicit path without changing
+its extension. Markdown remains the default format.
+
+`cwushell_test.html_reporting.render_html_report(report)` produces a standalone
+HTML document. Both renderers share metadata, case summary values, and the full
+case evidence traversal. HTML escapes every variable value into text, preserves
+preformatted evidence and command whitespace, and embeds its CSS and navigation
+script without external assets.
+
+The initial view shows case counts and observed execution label counts per suite.
+Suites, cases, and evidence sections use nested native `details`/`summary`
+elements, collapsed initially. Each suite contains the complete case summary table;
+case links reveal the corresponding case. Expand/collapse controls and printing
+use a local script; individual disclosures work with scripting disabled. These
+counts and labels describe observations only.
+
+Run `task test -- tests/test_html_reporting.py tests/test_cli.py` for evidence
+preservation, hostile text escaping, disclosure nesting, format selection,
+default destinations, explicit paths, and write errors. The full synthetic HTML
+CLI run in `tests/test_runner.py` verifies all 58 cases reach the HTML report.
 
 ## Verification of issue #3
 
