@@ -9,6 +9,7 @@ from cwushell_test.fixtures import (
     CD_FIXTURES,
     EXPORT_ENVIRONMENT,
     EXTERNAL_FIXTURES,
+    LISTING_FIXTURES,
     UNSET_ENVIRONMENT,
     Fixture,
 )
@@ -104,9 +105,9 @@ SYSTEM_CASES = (
     _case("T6", "unknown", "bogus_cmd_xyz"),
     _case("T6", "cpu-invalid", "cpuinfo -z"),
     _case("T6", "memory-invalid", "meminfo -x"),
-    _case("T6", "ls", "ls"),
+    ShellScenario("T6.ls", "T6", "ls", (Command("ls"),), LISTING_FIXTURES),
     _case("T6", "pwd", "pwd"),
-    _case("T6", "echo", "echo"),
+    _case("T6", "echo", "echo fixture_alpha fixture_beta"),
     ShellScenario(
         "T6.cat",
         "T6",

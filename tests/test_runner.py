@@ -12,7 +12,7 @@ from pathlib import Path
 
 import pytest
 
-from cwushell_test import cli, pty_session, runner
+from cwushell_test import cli, fixtures, pty_session, runner
 
 SHELL = Path(__file__).parent / "fixtures" / "scenario_shell.py"
 SCRIPT = Path(__file__).parents[1] / "cwushell_test.py"
@@ -184,7 +184,33 @@ def test_full_cli_inventory(entry, tmp_path: Path, recorded_groups):
         ]
         assert received == [command.text for command in scenario.commands]
         initial = json.loads(section.split("INITIAL ", 1)[1].splitlines()[0])
-        if scenario.case_id == "T6.cd":
+        assert initial["entries"] == sorted(
+            fixture.path
+            for fixture in getattr(scenario, "fixtures", ())
+            if fixture.kind != "absent"
+        )
+        if scenario.case_id == "T6.ls":
+            context, rest = section.split("#### Planned commands", 1)
+            terminal = rest.split("#### Combined PTY terminal output", 1)[1].split(
+                "#### Capture notes", 1
+            )[0]
+            assert "fixture_beta.txt\tfixture_alpha.txt\ncwushell>" in terminal
+            for fixture in fixtures.LISTING_FIXTURES:
+                assert "Fixture path:\n\n```text\n" + fixture.path + "\n```" in context
+                assert repr(fixture.contents) in context
+                assert (
+                    section.count(
+                        "Observed path:\n\n```text\n" + fixture.path + "\n```"
+                    )
+                    == 2
+                )
+        elif scenario.case_id == "T6.echo":
+            assert (
+                "Description:\n\n```text\necho fixture_alpha fixture_beta\n```"
+                in section
+            )
+            assert "\nfixture_alpha fixture_beta\ncwushell>" in section
+        elif scenario.case_id == "T6.cd":
             assert initial["fixture_dir"] == []
             assert json.loads(section.split("RECEIVED ")[-1].splitlines()[0])[2] == str(
                 Path(initial["cwd"]) / "fixture_dir"
@@ -362,3 +388,38 @@ def test_full_html_cli_inventory(tmp_path: Path, recorded_groups):
     for scenario in INVENTORY:
         assert scenario.case_id in document
     assert "EARLY INPUT" not in document
+
+
+@pytest.mark.timeout(180)
+def test_full_cli_undispatched_controlled_commands(
+    tmp_path: Path, monkeypatch, capsys, recorded_groups
+):
+    monkeypatch.setenv("SCENARIO_MODE", "startup_exit")
+    output = tmp_path / "early-exit.md"
+    assert cli.main([str(SHELL), "-o", str(output), "--timeout", "1"]) == 0
+    terminal = capsys.readouterr()
+    markdown = output.read_text()
+    assert_complete_report(markdown, terminal.out, SHELL.resolve(), output)
+    by_id = dict(
+        zip([case.case_id for case in INVENTORY], details(markdown), strict=True)
+    )
+    for case_id, command in (
+        ("T6.ls", "ls"),
+        ("T6.echo", "echo fixture_alpha fixture_beta"),
+    ):
+        section = by_id[case_id]
+        assert "#### Dispatched commands (fully sent)\n\nNone." in section
+        for heading in ("Planned commands", "Remaining undispatched commands"):
+            inputs = section.split("#### " + heading, 1)[1].split("#### ", 1)[0]
+            assert "```text\n" + command + "\n```" in inputs
+        assert "RECEIVED " not in section
+        assert "INCOMPLETE_DISPATCH" in section
+        assert "Observed process exit status:\n\n```text\n19\n```" in section
+    for fixture in fixtures.LISTING_FIXTURES:
+        assert repr(fixture.contents) in by_id["T6.ls"]
+        assert (
+            by_id["T6.ls"].count("Observed path:\n\n```text\n" + fixture.path + "\n```")
+            == 2
+        )
+    assert "No fixtures recorded." in by_id["T6.echo"]
+    assert_groups_released(recorded_groups, 58)
