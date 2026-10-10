@@ -143,6 +143,40 @@ PROMPT_CASES = (
             "No editing mode is forced; only normal launch echo suppression is used.",
         ),
     ),
+    ShellScenario(
+        "T1.cursor-insertion",
+        "T1",
+        "Optional interactive usability: left/right cursor movement and insertion",
+        (
+            Command(
+                "Left twice, Right once, insert l",
+                actions=(
+                    Action("type", b"echo helo"),
+                    Action("key", b"\x1b[D"),
+                    Action("key", b"\x1b[D"),
+                    Action("key", b"\x1b[C"),
+                    Action("type", b"l"),
+                    Action("enter", b"\n"),
+                ),
+            ),
+            Command("echo keyboard_alive"),
+        ),
+        terminal_type="xterm",
+        notes=(
+            "Optional interactive-usability observation: assignment.md does not "
+            "explicitly mandate cursor editing/history. Intended resulting line: "
+            "echo hello (planned intent, not observed input or output). Left twice, "
+            "Right once, then insert l before the final o.",
+            "TERM=xterm is a controlled exception to TERM=dumb. Left uses CSI D "
+            "(ESC [ D); Right uses CSI C (ESC [ C), sent literally without remapping. "
+            "No editing mode is forced; only normal launch echo suppression is used. "
+            "Terminal-driver behavior may contribute to editing.",
+            "The cleaned transcript does not reconstruct the visual screen and "
+            "alone cannot establish editing behavior. Inspect escaped raw cursor "
+            "and redraw bytes alongside actual output. Unsupported input, including "
+            "escape bytes treated as ordinary input, is recorded without grading.",
+        ),
+    ),
 )
 
 TERMINATION_CASES = (

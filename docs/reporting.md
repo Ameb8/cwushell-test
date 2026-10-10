@@ -153,7 +153,7 @@ Run `task test -- tests/test_html_reporting.py tests/test_cli.py` for evidence
 preservation, hostile text escaping, report order, preview/capture distinctions,
 input whitespace, event filter classification, native disclosure structure,
 format selection, default destinations, explicit paths, and write errors. The
-full synthetic HTML CLI run in `tests/test_runner.py` verifies all 60 cases reach
+full synthetic HTML CLI run in `tests/test_runner.py` verifies all 61 cases reach
 the HTML report. Browser verification should also exercise combined filters,
 search beyond previews and in file/cleanup evidence, review/reload behavior,
 keyboard disclosures, printing, and small-screen scrolling on local files.
@@ -179,7 +179,7 @@ These checks verify harness recording/rendering, not student output. Fixture
 collection, scenario execution, and CLI integration are verified separately by
 their focused tests and the full workflow tests.
 
-## Keyboard evidence and raw terminal view (#46, #47)
+## Keyboard evidence and raw terminal view (#46, #47, #48)
 
 Cases with explicit actions display planned interaction labels, ordered typed
 text/key/Enter actions, exact escaped input bytes including LF, and byte-level

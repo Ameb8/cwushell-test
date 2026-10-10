@@ -1,4 +1,4 @@
-"""DEL and BS plans, real incoming bytes, failure paths, and equivalent safe reports."""
+"""DEL, BS, and cursor plans, real incoming bytes, failure paths, and equivalent safe reports."""
 
 import json
 import os
@@ -20,15 +20,24 @@ from cwushell_test.shell_scenarios import PROMPT_CASES
 SHELL = Path(__file__).parent / "fixtures" / "keyboard_shell.py"
 
 
-@pytest.fixture(params=["del", "bs"])
+@pytest.fixture(params=["del", "bs", "cursor"])
 def keyboard_case(request):
     return next(
-        case for case in PROMPT_CASES if case.case_id == f"T1.backspace-{request.param}"
+        case
+        for case in PROMPT_CASES
+        if case.case_id
+        == (
+            "T1.cursor-insertion"
+            if request.param == "cursor"
+            else f"T1.backspace-{request.param}"
+        )
     )
 
 
 @pytest.fixture
 def exact_input(keyboard_case):
+    if keyboard_case.case_id == "T1.cursor-insertion":
+        return b"echo helo\x1b[D\x1b[D\x1b[Cl\n"
     return (
         b"echo hellx"
         + (b"\x08" if keyboard_case.case_id.endswith("bs") else b"\x7f")
@@ -80,7 +89,7 @@ def incoming(case):
     ]
 
 
-def test_exact_backspace_actions_and_raw_editing_evidence(keyboard_case, exact_input):
+def test_exact_keyboard_actions_and_raw_editing_evidence(keyboard_case, exact_input):
     assert (
         sum(
             case.case_id == keyboard_case.case_id
@@ -90,12 +99,23 @@ def test_exact_backspace_actions_and_raw_editing_evidence(keyboard_case, exact_i
         == 1
     )
     actions = keyboard_case.commands[0].actions
-    assert [(a.kind, a.data) for a in actions] == [
-        ("type", b"echo hellx"),
-        ("key", exact_input[10:11]),
-        ("type", b"o"),
-        ("enter", b"\n"),
-    ]
+    assert [(a.kind, a.data) for a in actions] == (
+        [
+            ("type", b"echo helo"),
+            ("key", b"\x1b[D"),
+            ("key", b"\x1b[D"),
+            ("key", b"\x1b[C"),
+            ("type", b"l"),
+            ("enter", b"\n"),
+        ]
+        if keyboard_case.case_id == "T1.cursor-insertion"
+        else [
+            ("type", b"echo hellx"),
+            ("key", exact_input[10:11]),
+            ("type", b"o"),
+            ("enter", b"\n"),
+        ]
+    )
     case = keyboard_case.run(SHELL, timeout=1)
     session = case.session
     assert incoming(case) == [exact_input, b"echo keyboard_alive\n"]
@@ -120,7 +140,9 @@ def test_exact_backspace_actions_and_raw_editing_evidence(keyboard_case, exact_i
     )
     assert dict(session.terminal_observations[1].modes)["ICANON"] is False
     assert session.terminal_observations[1].verase == b"\x7f"
-    assert b"\x08 \x08" in session.raw_output
+    assert (
+        b"\x1b[D" if keyboard_case.case_id == "T1.cursor-insertion" else b"\x08 \x08"
+    ) in session.raw_output
     assert session.direct_child_reaped and not Path(session.working_directory).exists()
     assert session.signal_status is None
     for rendered in (
@@ -128,6 +150,11 @@ def test_exact_backspace_actions_and_raw_editing_evidence(keyboard_case, exact_i
         render_html_report(report_for(case)),
     ):
         assert "Action dispatch accounting" in rendered
+        if keyboard_case.case_id == "T1.cursor-insertion":
+            assert "Fully sent; 9/9 bytes" in rendered
+            assert "CSI D" in rendered and "CSI C" in rendered
+            assert "does not reconstruct the visual screen" in rendered
+            continue
         assert "Fully sent; 10/10 bytes" in rendered
         assert "Canonical terminal-driver erase behavior" in rendered
         assert (
@@ -252,7 +279,14 @@ def test_keystrokes_share_original_deadline(monkeypatch, keyboard_case):
     case = keyboard_case.run(SHELL, timeout=0.2)
     assert len(deadlines) == 3 and len(set(deadlines)) == 1
     assert case.session.reason == "TIMEOUT"
-    assert [r.sent_bytes for r in case.session.action_dispatch[:4]] == [10, 1, 0, 0]
+    assert [
+        r.sent_bytes
+        for r in case.session.action_dispatch[: len(keyboard_case.commands[0].actions)]
+    ] == (
+        [9, 3, 0, 0, 0, 0]
+        if keyboard_case.case_id == "T1.cursor-insertion"
+        else [10, 1, 0, 0]
+    )
     assert case.session.undispatched == [c.text for c in keyboard_case.commands]
     assert case.session.interactions[-1].waiting_for == "command dispatch"
     assert case.session.interaction_seconds <= 0.4 + 0.25
@@ -288,15 +322,26 @@ def test_raw_views_are_inert_exact_and_same_bounded_prefix(keyboard_case):
 def test_canonical_driver_deletion_and_startup_fallback(
     monkeypatch, keyboard_case, exact_input
 ):
-    monkeypatch.setenv(
-        "KEYBOARD_MODE", "canonical-bs" if exact_input[10] == 8 else "canonical"
-    )
+    if keyboard_case.case_id == "T1.cursor-insertion":
+        monkeypatch.setenv("KEYBOARD_MODE", "canonical")
+    else:
+        monkeypatch.setenv(
+            "KEYBOARD_MODE", "canonical-bs" if exact_input[10] == 8 else "canonical"
+        )
     case = keyboard_case.run(SHELL, timeout=1)
-    assert incoming(case) == [b"echo hello\n", b"echo keyboard_alive\n"]
+    assert incoming(case) == [
+        exact_input
+        if keyboard_case.case_id == "T1.cursor-insertion"
+        else b"echo hello\n",
+        b"echo keyboard_alive\n",
+    ]
     assert dict(case.session.terminal_observations[1].modes)["ICANON"] is True
     assert (
         b"".join(
-            r.action.data[: r.sent_bytes] for r in case.session.action_dispatch[:4]
+            r.action.data[: r.sent_bytes]
+            for r in case.session.action_dispatch[
+                : len(keyboard_case.commands[0].actions)
+            ]
         )
         == exact_input
     )
@@ -339,15 +384,33 @@ def test_exit_during_keys_retains_available_output_and_unsent_actions(
 
     def pause_after_key(child, record, deadline):
         event = dispatch(child, record, deadline)
-        if record.action.data == exact_input[10:11]:
-            time.sleep(0.05)  # Fault injection: let the fixture exit between keys.
+        if record.action.data == (
+            b"\x1b[D"
+            if keyboard_case.case_id == "T1.cursor-insertion"
+            else exact_input[10:11]
+        ):
+            # Fault injection: observe termination before the next action,
+            # within the original deadline, even on a heavily scheduled host.
+            while child.isalive() and time.monotonic() < deadline:
+                time.sleep(min(0.001, max(0.0, deadline - time.monotonic())))
         return event
 
     monkeypatch.setattr(pty, "_dispatch", pause_after_key)
     case = keyboard_case.run(SHELL, timeout=0.5)
     assert case.session.reason == "EOF" and case.session.exit_status == 7
-    assert [r.sent_bytes for r in case.session.action_dispatch[:4]] == [10, 1, 0, 0]
-    assert incoming(case) == [exact_input[:11]]
+    assert [
+        r.sent_bytes
+        for r in case.session.action_dispatch[: len(keyboard_case.commands[0].actions)]
+    ] == (
+        [9, 3, 0, 0, 0, 0]
+        if keyboard_case.case_id == "T1.cursor-insertion"
+        else [10, 1, 0, 0]
+    )
+    assert incoming(case) == [
+        exact_input[:12]
+        if keyboard_case.case_id == "T1.cursor-insertion"
+        else exact_input[:11]
+    ]
     assert "key exit evidence" in case.session.output
     assert case.session.undispatched == [c.text for c in keyboard_case.commands]
     assert case.session.interactions[-1].waiting_for == "command dispatch"

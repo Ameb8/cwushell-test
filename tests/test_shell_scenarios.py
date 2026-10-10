@@ -32,6 +32,7 @@ def test_exact_inventory_and_wait_targets():
         ["echo\talpha\tbeta"],
         ["DEL backspace editing", "echo keyboard_alive"],
         ["BS backspace editing", "echo keyboard_alive"],
+        ["Left twice, Right once, insert l", "echo keyboard_alive"],
     ]
     assert [c.prompt for c in scenarios.PROMPT_CASES[1].commands] == [
         "myprompt>",
@@ -61,7 +62,7 @@ def test_exact_inventory_and_wait_targets():
         ["export CWUSHELL_TEST_EXPORT=fixture_value", "printenv CWUSHELL_TEST_EXPORT"],
         ["unset CWUSHELL_TEST_UNSET", "printenv CWUSHELL_TEST_UNSET"],
     ]
-    assert len({case.case_id for case in ALL_CASES}) == 27
+    assert len({case.case_id for case in ALL_CASES}) == 28
     for suite, cases in (
         ("T1", scenarios.PROMPT_CASES),
         ("T2", scenarios.TERMINATION_CASES),
@@ -194,6 +195,8 @@ def test_all_exact_inputs_independent_sessions_and_report(owned_sessions, monkey
             if case.case_id == "T1.backspace-del"
             else ["echo hellx\x08o", "echo keyboard_alive"]
             if case.case_id == "T1.backspace-bs"
+            else ["echo helo\x1b[D\x1b[D\x1b[Cl", "echo keyboard_alive"]
+            if case.case_id == "T1.cursor-insertion"
             else session.dispatched
         )
         assert all(row[1] == session.pid for row in received)
@@ -206,10 +209,10 @@ def test_all_exact_inputs_independent_sessions_and_report(owned_sessions, monkey
         else:
             assert session.reason == "COMPLETED"
         assert_released(case, owned_sessions)
-    assert len(owned_sessions) == 27
-    assert len({case.session.pid for case in cases}) == 27
-    assert len({case.session.working_directory for case in cases}) == 27
-    assert [case.session.exit_status for case in cases[10:15]] == [42, 246, 0, 0, 1]
+    assert len(owned_sessions) == 28
+    assert len({case.session.pid for case in cases}) == 28
+    assert len({case.session.working_directory for case in cases}) == 28
+    assert [case.session.exit_status for case in cases[11:16]] == [42, 246, 0, 0, 1]
     prompt = cases[1]
     assert [event.waiting_for for event in prompt.session.interactions] == [
         "cwushell>",
@@ -228,7 +231,9 @@ def test_all_exact_inputs_independent_sessions_and_report(owned_sessions, monkey
     assert records(unset, "INITIAL ")[0]["unset"] == "fixture_value"
     assert unset.controlled_environment["CWUSHELL_TEST_UNSET"] == "fixture_value"
     assert records(unset, "ENVIRONMENT ") == [None]
-    for case in cases[21:24]:
+    for case in cases:
+        if case.case_id not in ("T6.cat", "T6.cp", "T6.rm"):
+            continue
         assert case.fixtures == fixtures.EXTERNAL_FIXTURES
         before = {o.path: o for o in case.file_observations if o.phase == "before"}
         after = {o.path: o for o in case.file_observations if o.phase == "after"}

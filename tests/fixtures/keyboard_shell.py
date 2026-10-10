@@ -40,7 +40,7 @@ while True:
         if not value:
             raise SystemExit(0)
         incoming.extend(value)
-        if mode == "key_exit" and value in (b"\x7f", b"\x08"):
+        if mode == "key_exit" and value in (b"\x7f", b"\x08", b"D"):
             emit(
                 b"\nBYTES " + bytes(incoming).hex().encode() + b"\nkey exit evidence\n"
             )
@@ -48,14 +48,32 @@ while True:
         if value == b"\n":
             break
     edited = bytearray()
-    for value in incoming[:-1]:
+    cursor = 0
+    offset = 0
+    data = incoming[:-1]
+    while offset < len(data):
+        sequence = data[offset : offset + 3]
+        value = data[offset]
+        if mode == "edit" and sequence in (b"\x1b[D", b"\x1b[C"):
+            cursor = (
+                max(0, cursor - 1)
+                if sequence == b"\x1b[D"
+                else min(len(edited), cursor + 1)
+            )
+            emit(sequence)
+            offset += 3
+            continue
         if mode == "edit" and value in (127, 8):
-            if edited:
-                edited.pop()
-            # Raw editing evidence remains inspectable even with launch echo off.
+            if cursor:
+                cursor -= 1
+                del edited[cursor]
             emit(b"\x08 \x08")
         else:
-            edited.append(value)
+            edited[cursor:cursor] = bytes([value])
+            cursor += 1
+            if mode == "edit" and cursor < len(edited):
+                emit(bytes(edited[cursor - 1 :]) + b"\x1b[D")
+        offset += 1
     emit(b"\nBYTES " + bytes(incoming).hex().encode() + b"\n")
     emit(b"LINE " + json.dumps(bytes(edited).decode()).encode() + b"\n")
     if mode == "exit":

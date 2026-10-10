@@ -16,7 +16,7 @@ The complete CLI, bounded PTY interaction helper, and Markdown/HTML evidence
 report pipeline are implemented, along with the independent
 [T3–T5 CPU, memory, and help scenarios](docs/information-scenarios.md) and
 [T1/T2/T6 prompt, termination, and system scenarios](docs/shell-scenarios.md).
-The [full workflow](docs/workflow.md) registers all 60 cases and documents
+The [full workflow](docs/workflow.md) registers all 61 cases and documents
 end-to-end verification. The [report contract](docs/reporting.md) describes the models and writer.
 The helper interface and
 focused fixture checks are documented in [docs/pty-session.md](docs/pty-session.md). Use Linux and Python 3.14+, as

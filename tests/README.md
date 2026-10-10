@@ -79,16 +79,16 @@ contract without invoking CLI orchestration or student binaries.
 Full CLI/report checks live in `test_runner.py`; run
 `task test -- tests/test_runner.py`. See [workflow verification](../docs/workflow.md)
 for the acceptance mapping and reproducible synthetic commands. These tests
-exercise all 60 cases through the console, module, and checkout script entry
+exercise all 61 cases through the console, module, and checkout script entry
 points, then repeat full runs in-process to measure descriptor release and
 per-case interaction/cleanup bounds. Finite 180/300-second outer timeouts account
-for 60 real PTY launches per run and two runs in the lifecycle check. Test-side
+for 61 real PTY launches per run and two runs in the lifecycle check. Test-side
 finally cleanup retains ownership through recorded process groups.
 
-DEL and BS keyboard action verification lives in `test_keyboard.py` using the executable
+DEL, BS, and cursor keyboard action verification lives in `test_keyboard.py` using the executable
 `fixtures/keyboard_shell.py`. Run `task test -- tests/test_keyboard.py` for exact
 incoming byte order, editing/unsupported modes, differing VERASE, bounded partial
 dispatch, shared deadlines, timeout/exit/crash recovery suppression, fresh sessions,
 and equivalent safe raw/cleaned evidence in both report formats. The fixture uses
 termios and byte reads, without readline or student material. Existing full CLI
-checks include both stable T1 cases in all 60 cases.
+checks include all three stable T1 cases in all 61 cases.

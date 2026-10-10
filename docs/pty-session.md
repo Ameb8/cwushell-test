@@ -347,7 +347,7 @@ these together with the existing PTY lifecycle, CLI, and report checks.
 | Synthetic observation tests without student grading | All fixture tests use `mock_shell.py` or temporary files; assertions check harness recording only |
 | Required repository gates | Focused fixture tests, `task test`, and `task check` |
 
-## Ordered keyboard actions (#46, #47)
+## Ordered keyboard actions (#46, #47, #48)
 
 `Command(text, prompt="cwushell>", actions=())` remains compatible with line
 consumers: without actions, exact UTF-8 text and one LF are sent. With actions,
