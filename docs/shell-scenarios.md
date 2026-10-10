@@ -1,6 +1,6 @@
 # Prompt, termination, and system-command evidence
 
-`cwushell_test.shell_scenarios` supplies immutable `PROMPT_CASES` (T1, thirteen
+`cwushell_test.shell_scenarios` supplies immutable `PROMPT_CASES` (T1, fourteen
 cases), `TERMINATION_CASES` (T2, five cases), and `SYSTEM_CASES` (T6, twelve
 cases). Identifiers are stable within each suite. These definitions cover every
 T1/T2/T6 input in specification section 6. The [full workflow](workflow.md)
@@ -79,7 +79,7 @@ timeout. Synthetic fixture assertions verify the harness, not student output.
 
 | Acceptance criterion | Test evidence |
 | --- | --- |
-| Complete inventory, exact spaces/tabs, independent sessions | Inventory and all-input integration checks cover 30 fresh PIDs/directories and exact received lines, with no appended commands |
+| Complete inventory, exact spaces/tabs, independent sessions | Inventory and all-input integration checks cover 31 fresh PIDs/directories and exact received lines, with no appended commands |
 | Requested/reset prompts and state observation pacing | Wait-target assertions, received directory/environment observations, and synthetic early-input detector |
 | Report compatibility, no output judgments | All-case report check, adapter identity/context test, and deviation checks retaining exit 7, arbitrary pwd/echo output, and unchanged files |
 | Startup fallback and stopped sequences | Startup-only/missing/early-exit checks; mismatch, continuous-output timeout, and crash tests for each two-command prompt/cd/export/unset sequence |
@@ -99,7 +99,7 @@ Both modes retain the same execution observations and fixture context; no output
 correctness label is introduced. Small-capture tests cover startup exit, crashes,
 continuous output timeouts, prompt detection after truncation, and a subsequent
 independent case with no leaked listing fixtures. Full CLI/report checks cover all
-63 cases and distinguish fully sent input from input left undispatched by startup
+64 cases and distinguish fully sent input from input left undispatched by startup
 exit. Tests keep process ownership in the existing finally-cleanup fixtures.
 
 ## Optional DEL usability observation (#46)
@@ -124,7 +124,7 @@ synthetic program requiring neither student binaries nor readline. Tests verify
 exact incoming bytes and supported deletion, unsupported editing and differing
 VERASE, timeout/exit/crash recovery suppression and later fresh sessions, real
 partial dispatch against a stopped reader, and one deadline across keystrokes.
-Existing scenario and CLI tests verify canonical-driver deletion and all 63
+Existing scenario and CLI tests verify canonical-driver deletion and all 64
 normal workflow cases. Both renderers are checked for exact raw control/ANSI and
 invalid UTF-8 preservation, hostile text containment, capture bounds, and preview
 shortening distinct from raw truncation. Test-side finally cleanup owns each
@@ -136,7 +136,7 @@ synthetic group; finite outer timeouts remain enabled.
 | --- | --- |
 | Exact DEL bytes, intended line kept separate, same-session recovery | Stable `T1.backspace-del` action tuple; byte-oriented supported/unsupported tests compare real incoming bytes, observed lines and recovery order |
 | VERASE context without remapping, driver-editing limits, optional usability | Read-only snapshots and shared case notes; differing-VERASE and canonical-driver tests; both report views |
-| CLI registration with existing T1–T6 retained, equivalent HTML/Markdown | Existing T1 inventory registration; 63-case console/module/script and HTML CLI checks; shared detailed traversal |
+| CLI registration with existing T1–T6 retained, equivalent HTML/Markdown | Existing T1 inventory registration; 64-case console/module/script and HTML CLI checks; shared detailed traversal |
 | Planned actions, exact bytes, fully sent/partial/remaining accounting | `Action`, `ActionDispatch`, `Command.input_actions`; reports and real blocked-reader test, independent of output cap |
 | One original monotonic deadline, no between-key prompt waits, prompt-paced recovery | Shared `_dispatch` loop and original reader deadline; delayed-write deadline test and real recovery recording |
 | Fresh sessions, startup synchronization/fallback, bounded capture/cleanup | Shared `run_session`; keyboard startup/fallback and failure tests plus existing isolation/process-group lifecycle tests |
@@ -170,7 +170,7 @@ recovery suppression, early exit between keys, real partial writes, shared
 monotonic deadlines, and safe hostile/raw evidence in both renderers. Canonical
 BS deletion is verified with a synthetic target that sets its own VERASE;
 normal CLI tests also retain the differing default VERASE behavior without
-forcing it. Full workflow checks include both cases among all 63 cases.
+forcing it. Full workflow checks include both cases among all 64 cases.
 
 ### Issue #47 acceptance mapping
 
@@ -182,7 +182,7 @@ forcing it. Full workflow checks include both cases among all 63 cases.
 | Ordered actions, explicit LF, shared deadline and partial/remaining accounting | Existing shared PTY contract; both-byte deadline tests and real blocked-reader partial dispatch |
 | Raw and cleaned bounded evidence, inert controls/hostile text, capture and preview distinction | Both-byte raw-view tests, same retained prefix, shared report traversal and HTML full-evidence search |
 | Prompt/exit/signal and separate cleanup evidence; later cases continue | Both-byte stopped-recovery tests with fresh later sessions, full workflow fault/lifecycle checks |
-| CLI registration, both report formats, inventories and original T1–T6 retained | 63-case console/module/script Markdown and HTML runs, 30-case T1/T2/T6 inventory tests |
+| CLI registration, both report formats, inventories and original T1–T6 retained | 64-case console/module/script Markdown and HTML runs, 31-case T1/T2/T6 inventory tests |
 | No grades, comparisons or replacement output; excluded sibling probes absent | Input-only scenario definition and manual-review notes; no new cursor/history/signal/job-control cases |
 
 
@@ -209,7 +209,7 @@ capture notes, actual output and termination, and separate cleanup diagnostics.
 | Unsupported input, initial fallback, canonical driver, early startup termination | Cursor parameters in unsupported and startup/canonical tests retain actual bytes/output |
 | Shared deadline, partial dispatch, stopped recovery and fresh continuation | Cursor parameters in deadline, blocked-write, timeout/exit/crash and exit-between-keys tests |
 | Safe raw/control/hostile text, same bounded capture, preview distinct | Cursor parameter in raw-view test renders both formats with truncation and full searchable evidence |
-| CLI registration and original coverage retained | 63-case Markdown and HTML CLI tests; 30-case T1/T2/T6 inventory and lifecycle checks |
+| CLI registration and original coverage retained | 64-case Markdown and HTML CLI tests; 31-case T1/T2/T6 inventory and lifecycle checks |
 
 All tests use finite outer deadlines and owned synthetic process-group cleanup.
 
@@ -241,7 +241,7 @@ snapshot diagnostics remain visible; unknown history filenames are collected too
 | Exact ordered actions, partial/remaining bytes and original deadline | Existing real blocked-writer test; history delayed Up/Enter deadline and exit-between-keys tests |
 | Unsupported history, timeout/exit/crash, undispatched recovery and later fresh case | History unsupported/fault/fallback integration parameters using byte-oriented synthetic shell without readline |
 | Bounded raw/cleaned views, inert hostile controls, distinct preview limits | Shared keyboard raw tests and history capture-range truncation test; renderer disclosures/search retain full evidence |
-| Normal CLI registration and original T1–T6 coverage | 63-case console/module/script Markdown and HTML verification; 30-case shell inventory |
+| Normal CLI registration and original T1–T6 coverage | 64-case console/module/script Markdown and HTML verification; 31-case shell inventory |
 
 ## Multi-entry history navigation using Up and Down (#50)
 
@@ -274,7 +274,7 @@ HTML full evidence and search include this data independently of preview limits.
 | Fresh HOME and generated history observations, independent cleanup | Conflicting inherited HOME/HISTFILE/startup settings, absent initial history, synthetic history file contents, reaped child and removed directory assertions |
 | Unsupported input, timeout, partial sequence, exit/crash and continuation | History fault/fallback parameters and exit/deadline between-key tests preserve unsent actions/recovery and run a later fresh case; shared blocked-writer test verifies real partial byte dispatch |
 | Terminal context, safe raw/cleaned evidence and capture/preview bounds | History tests inspect xterm/termios, escaped ANSI/CR/backspace/invalid UTF-8 and hostile text in both renderers, shared raw preview tests, bounded history interaction ranges |
-| Normal CLI registration and preserved T1–T6 coverage | 63-case Markdown console/module/script and HTML workflows, exact 30-case shell inventory and received-input checks |
+| Normal CLI registration and preserved T1–T6 coverage | 64-case Markdown console/module/script and HTML workflows, exact 31-case shell inventory and received-input checks |
 
 Run the focused tests, then `task test` and `task check`:
 
@@ -284,3 +284,45 @@ task test -- tests/test_keyboard.py tests/test_shell_scenarios.py tests/test_run
 
 The harness-owned byte-oriented fixture uses no readline installation or student
 binary.
+
+## Cursor and DEL editing of recalled history (#51)
+
+`T1.history-editing` adds an independent optional interactive-usability case.
+A fresh controlled HOME starts with no history. In the same xterm PTY, setup
+sends `b"echo history_one\n"` and waits for the normal prompt. The next
+interaction sends exactly `b"\x1b[A\x1b[D\x1b[C\x7f\x7f\x7ftwo\n"`:
+Up, Left once, Right once, three separate DEL keys, typed `two`, and explicit
+Enter LF. The intended command is `echo history_two`: recall, return the cursor
+to the end, remove the suffix `one`, then insert `two`. This is planned intent;
+no preconstructed edited command is sent or presented as observed output.
+Recovery sends `b"echo keyboard_alive\n"` only after the editing prompt.
+
+The shared ordered-action contract keeps one original deadline for all eight
+writes and the resulting wait, with no prompt waits between keys. It records
+fully sent, partially sent, and remaining actions independently of capture.
+DEL is literal, with observed VERASE and no remapping; inherited terminal-driver
+editing may contribute. The xterm exception to TERM=dumb and read-only initial
+and subsequent termios snapshots are recorded. No student editing mode is forced.
+The shared isolated-HOME inventory records absent initial history and safely
+observable created files after cleanup, with collection limits and diagnostics.
+
+Both formats show actual cleaned output and escaped raw bytes, including
+cursor/erase/redraws, in separate setup/edit/recovery ranges of the same bounded
+prefix. A cleaned transcript alone cannot establish editing behavior. HTML full
+evidence remains searchable; preview shortening is distinct from capture
+truncation. Unsupported input is retained without grading: assignment.md does
+not explicitly mandate cursor editing/history. No excluded signal, EOF,
+quoting, pipeline, redirection, background, or job-control probe is added.
+
+| Issue #51 contract | Verification |
+| --- | --- |
+| Exact ordered input, supported recalled edit, setup/recovery prompt pacing | `verify_history_editing` observes real PTY bytes, edited line and actual output, separate redraw slices, and exactly one wait per interaction |
+| Fresh HOME and history files; TERM, ICANON/ECHO and VERASE | Conflicting inherited HOME/HISTFILE/BASH_ENV test, absent initial history and synthetic created-history bytes, terminal snapshots; erase-context test uses differing VERASE and canonical driver |
+| Shared deadline, full/partial/remaining accounting, no replacement command | Exact action tuple; shared history deadline/early-key-exit test, partial Left-byte dispatch test, existing real saturated-PTY writer verification |
+| Unsupported input, timeout, crash, exit and startup fallback; stopped recovery and later fresh session | Shared history failure parameters now include this case; partial dispatch test repeats a fresh successful case |
+| Safe raw/cleaned evidence, controls/ANSI/invalid UTF-8/hostile text, bounded capture and searchable full view | Supported-edit report assertions and shared history capture-range test in both formats, existing keyboard preview/capture checks |
+| Normal workflow and original T1–T6 retained | 64-case console/module/script Markdown and HTML tests; exact 31-case shell inventory, actual canonical-driver input checks |
+| Prompt/termination/capture/cleanup notes and optional manual review | Shared detailed report traversal, failure tests distinguish observed crash/exit from cleanup signals, scenario intent and limitation notes |
+
+Tests use harness-owned byte-oriented programs without readline or student
+binaries, finite pytest outer timeouts, and finally-owned process cleanup.

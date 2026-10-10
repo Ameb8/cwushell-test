@@ -236,6 +236,47 @@ PROMPT_CASES = (
             "behavior. Unsupported input is recorded for manual review without grading.",
         ),
     ),
+    ShellScenario(
+        "T1.history-editing",
+        "T1",
+        "Optional interactive usability: cursor and DEL editing of recalled history",
+        (
+            Command("echo history_one"),
+            Command(
+                "Edit recalled history: Up, Left, Right, DEL three times, type two, Enter",
+                actions=(
+                    Action("key", b"\x1b[A"),
+                    Action("key", b"\x1b[D"),
+                    Action("key", b"\x1b[C"),
+                    Action("key", b"\x7f"),
+                    Action("key", b"\x7f"),
+                    Action("key", b"\x7f"),
+                    Action("type", b"two"),
+                    Action("enter", b"\n"),
+                ),
+            ),
+            Command("echo keyboard_alive"),
+        ),
+        terminal_type="xterm",
+        isolated_home=True,
+        notes=(
+            "Optional interactive-usability observation: assignment.md does not "
+            "explicitly mandate cursor editing/history. Intended resulting line: "
+            "echo history_two (planned intent, not observed input or output). "
+            "Recall history_one, move Left then Right to return to the end, "
+            "delete the suffix one with three DEL keys, then type two.",
+            "TERM=xterm is a controlled exception to TERM=dumb. Up uses CSI A "
+            "(ESC [ A); Left uses CSI D (ESC [ D); Right uses CSI C (ESC [ C). "
+            "DEL (\\x7f) is sent literally with no VERASE remapping. "
+            "No editing mode is forced; only normal launch echo suppression is used. "
+            "Terminal-driver behavior may contribute to editing; a mismatched "
+            "erase setting remains visible in the read-only terminal snapshots.",
+            "A cleaned transcript alone cannot establish editing behavior or "
+            "reconstruct cursor/erase/redraws. Inspect retained raw bytes alongside "
+            "actual output. Unsupported input is recorded for manual review "
+            "without grading; no edited command replaces the keystroke input.",
+        ),
+    ),
 )
 
 TERMINATION_CASES = (

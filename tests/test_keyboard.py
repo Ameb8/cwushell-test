@@ -417,7 +417,7 @@ def test_exit_during_keys_retains_available_output_and_unsent_actions(
     assert case.session.signal_status is None and case.session.direct_child_reaped
 
 
-@pytest.fixture(params=["T1.history-up", "T1.history-navigation"])
+@pytest.fixture(params=["T1.history-up", "T1.history-navigation", "T1.history-editing"])
 def history_case(request):
     return next(c for c in PROMPT_CASES if c.case_id == request.param)
 
@@ -432,6 +432,9 @@ def history_inputs(history_case):
 def test_history_exact_bytes_pacing_isolated_home_and_separate_output(
     monkeypatch, tmp_path, history_case
 ):
+    if history_case.case_id == "T1.history-editing":
+        verify_history_editing(monkeypatch, tmp_path, history_case)
+        return
     real_home = tmp_path / "real-home"
     real_home.mkdir()
     (real_home / ".history").write_bytes(b"private user history\n")
@@ -711,3 +714,176 @@ def test_home_inventory_is_bounded_and_does_not_follow_links(tmp_path):
     observations, notes = snapshot_home(home)
     assert len(observations) <= 129  # 128 discovered entries plus explicit .history.
     assert "HOME inventory truncated at 128 entries" in notes
+
+
+def verify_history_editing(monkeypatch, tmp_path, history_case):
+    """Inspect a real cross-process edit; setup output cannot stand in for editing."""
+    exact = b"\x1b[A\x1b[D\x1b[C\x7f\x7f\x7ftwo\n"
+    assert [(a.kind, a.data) for a in history_case.commands[1].actions] == [
+        ("key", b"\x1b[A"),
+        ("key", b"\x1b[D"),
+        ("key", b"\x1b[C"),
+        ("key", b"\x7f"),
+        ("key", b"\x7f"),
+        ("key", b"\x7f"),
+        ("type", b"two"),
+        ("enter", b"\n"),
+    ]
+    real_home = tmp_path / "real-home"
+    real_home.mkdir()
+    (real_home / ".history").write_bytes(b"private history\n")
+    monkeypatch.setenv("HOME", str(real_home))
+    monkeypatch.setenv("HISTFILE", str(real_home / ".history"))
+    monkeypatch.setenv("BASH_ENV", str(real_home / "startup"))
+    dispatch = pty._dispatch
+    wait = pty._Reader.wait
+    waits = []
+    edit_deadlines = []
+
+    def observed_wait(reader, prompt, deadline):
+        event = wait(reader, prompt, deadline)
+        waits.append((event, deadline))
+        return event
+
+    def observed_dispatch(child, record, deadline):
+        if record.command_index == 2:
+            assert len(waits) == 2 and waits[-1][0] == "PROMPT"
+            edit_deadlines.append(deadline)
+        if record.command_index == 3:
+            assert len(waits) == 3 and waits[-1][0] == "PROMPT"
+        return dispatch(child, record, deadline)
+
+    monkeypatch.setattr(pty._Reader, "wait", observed_wait)
+    monkeypatch.setattr(pty, "_dispatch", observed_dispatch)
+    case = history_case.run(SHELL, timeout=1)
+    session = case.session
+    assert incoming(case) == [b"echo history_one\n", exact, b"echo keyboard_alive\n"]
+    assert len(waits) == 4 and len(edit_deadlines) == 8
+    assert set(edit_deadlines) == {waits[2][1]}
+    assert [e.reason for e in session.interactions] == ["PROMPT"] * 4
+    assert session.reason == "COMPLETED" and not session.undispatched
+    assert all(r.sent_bytes == len(r.action.data) for r in session.action_dispatch)
+    slices = [
+        session.raw_output[e.retained_start : e.retained_end]
+        for e in session.interactions
+    ]
+    assert b"".join(slices) == session.raw_output
+    assert b'LINE "echo history_one"' in slices[1]
+    edited = slices[2]
+    assert b"BYTES " + exact.hex().encode() in edited
+    assert b'LINE "echo history_two"\r\n' in edited
+    assert b"history_two\r\n" in edited and b"keyboard_alive" not in edited
+    assert b"\r\x1b[Kecho history_one\r\n\x1b[D\x1b[C" in edited
+    assert b"\x08 \x08" * 3 in edited
+    assert b"keyboard_alive" in slices[3]
+    assert session.controlled_environment["HOME"] == session.working_directory
+    assert session.controlled_environment["HISTFILE"] == (
+        session.working_directory + "/.history"
+    )
+    assert session.controlled_environment["BASH_ENV"] is None
+    assert (real_home / ".history").read_bytes() == b"private history\n"
+    assert not next(o for o in case.file_observations if o.phase == "before").exists
+    assert (
+        next(
+            o for o in case.file_observations if o.path == ".synthetic_history"
+        ).contents
+        == b"echo history_one\necho history_two\n"
+    )
+    assert session.controlled_environment["TERM"] == "xterm"
+    assert dict(session.terminal_observations[1].modes)["ICANON"] is False
+    assert session.terminal_observations[1].verase == b"\x7f"
+    assert len(session.terminal_observations) == 5
+    assert all(dict(o.modes)["ECHO"] is False for o in session.terminal_observations)
+    assert session.direct_child_reaped and not Path(session.working_directory).exists()
+    assert session.signal_status is None
+    assert sum(c.case_id == case.case_id for _, cases in SUITES for c in cases) == 1
+    markdown = render_report(report_for(case))
+    html = render_html_report(report_for(case))
+    for rendered in (markdown, html):
+        assert repr(exact) in rendered or escape(repr(exact)) in rendered
+        for label in (
+            "Action 2.8 (enter)",
+            "Action 2.7 (type)",
+            "Fully sent; 3/3 bytes",
+            "Observed VERASE equals DEL",
+            "Separate interaction terminal evidence",
+            "Interaction raw terminal bytes",
+            "fresh empty HOME",
+            ".synthetic_history",
+            "planned intent, not observed input or output",
+            "CSI A",
+            "CSI D",
+            "CSI C",
+        ):
+            assert label in rendered
+        assert "\x1b" not in rendered and "\\xff" in rendered
+        assert "\\x08" in rendered and "optional" in rendered.lower()
+    assert case.raw_output_escaped in markdown
+    assert escape(case.raw_output_escaped) in html
+    assert "</code><script>hostile</script>" not in html
+    assert "Preview shortened" in html and "Capture not truncated" in html
+    assert "row.textContent" in html
+
+
+@pytest.mark.parametrize("mode", ["verase-bs", "canonical"])
+def test_history_editing_erase_context_without_remapping(monkeypatch, mode):
+    definition = next(c for c in PROMPT_CASES if c.case_id == "T1.history-editing")
+    monkeypatch.setenv("KEYBOARD_MODE", mode)
+    case = definition.run(SHELL, timeout=1)
+    exact = history_inputs(definition)[1]
+    # Canonical input processing removes the preceding Right sequence via DEL;
+    # a raw unsupported editor retains all bytes. Neither is replaced by intent.
+    received = b"\x1b[A\x1b[Dtwo\n" if mode == "canonical" else exact
+    assert incoming(case) == [b"echo history_one\n", received, b"echo keyboard_alive\n"]
+    assert 'LINE "echo history_two"' not in case.session.output
+    assert case.session.reason == "COMPLETED"
+    assert (
+        b"".join(
+            r.action.data[: r.sent_bytes]
+            for r in case.session.action_dispatch
+            if r.command_index == 2
+        )
+        == exact
+    )
+    assert case.session.terminal_observations[1].verase == (
+        b"\x08" if mode == "verase-bs" else b"\x7f"
+    )
+    for rendered in (
+        render_report(report_for(case)),
+        render_html_report(report_for(case)),
+    ):
+        assert "Observed VERASE equals DEL" in rendered
+        assert "mismatched erase setting remains visible" in rendered
+        if mode == "verase-bs":
+            assert "False" in rendered
+
+
+def test_history_editing_partial_key_dispatch_keeps_remaining_plan(monkeypatch):
+    definition = next(c for c in PROMPT_CASES if c.case_id == "T1.history-editing")
+    dispatch = pty._dispatch
+
+    def partial_left(child, record, deadline):
+        if record.command_index == 2 and record.action_index == 2:
+            # Inject deadline expiration after one real byte of the Left key.
+            record.sent_bytes = os.write(child.child_fd, record.action.data[:1])
+            time.sleep(max(0, deadline - time.monotonic()) + 0.01)
+        return dispatch(child, record, deadline)
+
+    monkeypatch.setattr(pty, "_dispatch", partial_left)
+    case = definition.run(SHELL, timeout=0.3)
+    records = [r for r in case.session.action_dispatch if r.command_index >= 2]
+    assert [r.sent_bytes for r in records] == [3, 1] + [0] * 8
+    assert case.session.reason == "TIMEOUT"
+    assert case.session.interactions[-1].waiting_for == "command dispatch"
+    assert case.session.undispatched == [c.text for c in definition.commands[1:]]
+    assert case.session.interaction_seconds <= 0.9 + 0.25
+    assert case.session.direct_child_reaped
+    for rendered in (
+        render_report(report_for(case)),
+        render_html_report(report_for(case)),
+    ):
+        assert "Partially sent; 1/3 bytes" in rendered
+        assert "remaining=b'[D'" in rendered or "remaining=b&#x27;[D&#x27;" in rendered
+        assert "Undispatched; 0/19 bytes" in rendered
+    monkeypatch.setattr(pty, "_dispatch", dispatch)
+    assert definition.run(SHELL, timeout=1).session.reason == "COMPLETED"

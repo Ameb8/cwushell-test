@@ -40,6 +40,11 @@ def test_exact_inventory_and_wait_targets():
             "Navigate history: Up twice, Down once, Enter",
             "echo keyboard_alive",
         ],
+        [
+            "echo history_one",
+            "Edit recalled history: Up, Left, Right, DEL three times, type two, Enter",
+            "echo keyboard_alive",
+        ],
     ]
     assert [c.prompt for c in scenarios.PROMPT_CASES[1].commands] == [
         "myprompt>",
@@ -69,7 +74,7 @@ def test_exact_inventory_and_wait_targets():
         ["export CWUSHELL_TEST_EXPORT=fixture_value", "printenv CWUSHELL_TEST_EXPORT"],
         ["unset CWUSHELL_TEST_UNSET", "printenv CWUSHELL_TEST_UNSET"],
     ]
-    assert len({case.case_id for case in ALL_CASES}) == 30
+    assert len({case.case_id for case in ALL_CASES}) == 31
     for suite, cases in (
         ("T1", scenarios.PROMPT_CASES),
         ("T2", scenarios.TERMINATION_CASES),
@@ -214,6 +219,8 @@ def test_all_exact_inputs_independent_sessions_and_report(owned_sessions, monkey
                 "echo keyboard_alive",
             ]
             if case.case_id == "T1.history-navigation"
+            else ["echo history_one", "\x1b[A\x1b[Dtwo", "echo keyboard_alive"]
+            if case.case_id == "T1.history-editing"
             else session.dispatched
         )
         assert all(row[1] == session.pid for row in received)
@@ -226,9 +233,9 @@ def test_all_exact_inputs_independent_sessions_and_report(owned_sessions, monkey
         else:
             assert session.reason == "COMPLETED"
         assert_released(case, owned_sessions)
-    assert len(owned_sessions) == 30
-    assert len({case.session.pid for case in cases}) == 30
-    assert len({case.session.working_directory for case in cases}) == 30
+    assert len(owned_sessions) == 31
+    assert len({case.session.pid for case in cases}) == 31
+    assert len({case.session.working_directory for case in cases}) == 31
     assert [case.session.exit_status for case in cases if case.suite_id == "T2"] == [
         42,
         246,
