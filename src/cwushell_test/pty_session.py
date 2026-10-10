@@ -8,10 +8,11 @@ import select
 import shlex
 import signal
 import tempfile
+import termios
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Mapping, Sequence
+from typing import Literal, Mapping, Sequence
 
 import pexpect
 
@@ -33,11 +34,51 @@ ANSI = re.compile(
 
 
 @dataclass(frozen=True)
+class Action:
+    """Exact input bytes; Enter is one explicit LF, with no implicit suffix."""
+
+    kind: Literal["type", "key", "enter"]
+    data: bytes
+
+
+@dataclass
+class ActionDispatch:
+    """Byte accounting independent of terminal capture, including partial writes."""
+
+    command_index: int
+    action_index: int
+    action: Action
+    sent_bytes: int = 0
+
+
+@dataclass(frozen=True)
+class TerminalObservation:
+    """Read-only termios snapshot from the owned PTY, or an explicit diagnostic."""
+
+    phase: str
+    flags: tuple[int, ...] = ()
+    modes: tuple[tuple[str, bool], ...] = ()
+    verase: bytes | None = None
+    error: str | None = None
+
+
+@dataclass(frozen=True)
 class Command:
-    """One line of input; None means wait for EOF instead of a literal prompt."""
+    """One paced interaction: a line or exact actions ending in explicit Enter.
+
+    With actions, text is a plan label. None means wait for terminal EOF.
+    """
 
     text: str
     prompt: str | None = "cwushell>"
+    actions: tuple[Action, ...] = ()
+
+    @property
+    def input_actions(self) -> tuple[Action, ...]:
+        return self.actions or (
+            Action("type", self.text.encode("utf-8")),
+            Action("enter", b"\n"),
+        )
 
 
 @dataclass(frozen=True)
@@ -78,6 +119,9 @@ class Evidence:
     controlled_environment: dict[str, str | None] = field(default_factory=dict)
     file_observations: tuple[FileObservation, ...] = ()
     notes: tuple[str, ...] = ()
+    action_dispatch: list[ActionDispatch] = field(default_factory=list)
+    terminal_observations: list[TerminalObservation] = field(default_factory=list)
+    terminal_profile: str = "dumb; 24x80; launch echo disabled; inherited termios"
 
     @property
     def output(self) -> str:
@@ -137,6 +181,25 @@ class _Reader:
         self.evidence = evidence
         self.cleaner = _TerminalCleaner()
 
+    def _retain(self, data: bytes) -> bytes:
+        capacity = self.evidence.max_output_bytes - len(self.evidence.raw_output)
+        self.evidence.raw_output += data[:capacity]
+        if len(data) > capacity:
+            self.evidence.truncated = True
+        return self.cleaner.feed(data)
+
+    def collect_available(self) -> None:
+        """One bounded nonblocking read after stopped dispatch; never wait anew."""
+        try:
+            data = os.read(self.child.child_fd, READ_BYTES)
+        except BlockingIOError:
+            return
+        except OSError as exc:
+            if exc.errno == errno.EIO:
+                return
+            raise
+        self._retain(data)
+
     def wait(self, prompt: str | None, deadline: float) -> str:
         needle = prompt.encode("utf-8") if prompt is not None else None
         # Track only the matching prefix of the current line, never whole lines.
@@ -177,11 +240,7 @@ class _Reader:
                 raise
             if not data:
                 return "EOF"
-            capacity = self.evidence.max_output_bytes - len(self.evidence.raw_output)
-            self.evidence.raw_output += data[:capacity]
-            if len(data) > capacity:
-                self.evidence.truncated = True
-            cleaned = self.cleaner.feed(data)
+            cleaned = self._retain(data)
             if needle is not None:
                 for value in cleaned:
                     if value in b"\r\n":
@@ -201,21 +260,51 @@ class _Reader:
                 )
 
 
-def _dispatch(child: pexpect.spawn, text: str, deadline: float) -> bool:
-    """Bound even writes to a target that stops reading its terminal."""
-    data = (text + "\n").encode("utf-8")
-    offset = 0
-    while offset < len(data):
+def _observe_terminal(child: pexpect.spawn, evidence: Evidence, phase: str) -> None:
+    """Never change editing settings or reopen a slave potentially owned by a target."""
+    try:
+        attrs = termios.tcgetattr(child.child_fd)
+        erase = attrs[6][termios.VERASE]
+        verase = bytes([erase]) if isinstance(erase, int) else erase
+        modes = tuple(
+            (name, bool(attrs[index] & getattr(termios, name)))
+            for index, names in (
+                (0, ("ICRNL", "IXON")),
+                (1, ("OPOST", "ONLCR")),
+                (3, ("ICANON", "ECHO", "ECHOE", "ECHOK", "ISIG", "IEXTEN")),
+            )
+            for name in names
+        )
+        observation = TerminalObservation(phase, tuple(attrs[:4]), modes, verase)
+    except (OSError, termios.error) as exc:
+        observation = TerminalObservation(phase, error=f"{type(exc).__name__}: {exc}")
+    evidence.terminal_observations.append(observation)
+
+
+def _dispatch(
+    child: pexpect.spawn, record: ActionDispatch, deadline: float
+) -> Literal["SENT", "TIMEOUT", "EOF"]:
+    """Bound each write by the interaction's original deadline; retain its offset."""
+    data = record.action.data
+    while record.sent_bytes < len(data):
         remaining = deadline - time.monotonic()
         if remaining <= 0:
-            return False
+            return "TIMEOUT"
         _, writable, _ = select.select([], [child.child_fd], [], remaining)
         if writable:
             try:
-                offset += os.write(child.child_fd, data[offset : offset + READ_BYTES])
+                count = os.write(
+                    child.child_fd,
+                    data[record.sent_bytes : record.sent_bytes + READ_BYTES],
+                )
+                record.sent_bytes += count
             except BlockingIOError:
                 continue
-    return True
+            except OSError as exc:
+                if exc.errno == errno.EIO:
+                    return "EOF"
+                raise
+    return "SENT" if time.monotonic() < deadline else "TIMEOUT"
 
 
 def _cleanup(child: pexpect.spawn, evidence: Evidence) -> None:
@@ -297,6 +386,7 @@ def run_session(
     environment: Mapping[str, str] | None = None,
     fixtures: Sequence[Fixture] = (),
     controlled_environment: Mapping[str, str | None] | None = None,
+    terminal_type: Literal["dumb", "xterm"] = "dumb",
 ) -> Evidence:
     """Execute a finite plan in a fresh temporary directory and return evidence.
 
@@ -323,14 +413,39 @@ def run_session(
         raise ValueError("expected prompts must be nonempty literals")
     if any("\n" in command.text or "\r" in command.text for command in plan):
         raise ValueError("commands must contain exactly one input line")
+    if terminal_type not in ("dumb", "xterm"):
+        raise ValueError("terminal type must be dumb or xterm")
+    for command in plan:
+        if command.actions:
+            if command.actions[-1] != Action("enter", b"\n"):
+                raise ValueError("action plans must end with one explicit Enter LF")
+            for action_index, action in enumerate(command.actions):
+                if action.kind not in ("type", "key", "enter") or not action.data:
+                    raise ValueError("actions require a known kind and nonempty bytes")
+                if action.kind == "enter" and action_index != len(command.actions) - 1:
+                    raise ValueError("Enter must terminate the interaction")
+                if action.kind != "enter" and any(
+                    b in action.data for b in (b"\n", b"\r")
+                ):
+                    raise ValueError("only Enter may submit an action plan")
     fixture_plan = tuple(fixtures)
     session_fixtures.validate_fixtures(fixture_plan)
     executable = target.resolve()
     evidence = Evidence(max_output_bytes, undispatched=[c.text for c in plan])
+    evidence.action_dispatch = [
+        ActionDispatch(command_index, action_index, action)
+        for command_index, command in enumerate(plan, 1)
+        for action_index, action in enumerate(command.input_actions, 1)
+    ]
+    evidence.terminal_profile = (
+        f"{terminal_type}; 24x80; launch echo disabled; inherited termios; "
+        "literal key bytes (no remapping)"
+    )
     env = dict(os.environ if environment is None else environment)
     evidence.fixtures = fixture_plan
     evidence.controlled_environment = dict(controlled_environment or {})
     evidence.controlled_environment.update(session_fixtures.TERMINAL_ENVIRONMENT)
+    evidence.controlled_environment["TERM"] = terminal_type
     for name, value in evidence.controlled_environment.items():
         if value is None:
             env.pop(name, None)
@@ -372,6 +487,7 @@ def run_session(
             evidence.pgid = child.pid
             child.setecho(False)
             os.set_blocking(child.child_fd, False)
+            _observe_terminal(child, evidence, "Initial after launch echo suppression")
             reader = _Reader(child, evidence)
             deadline = min(session_deadline, interaction_started + timeout)
             event = reader.wait(initial_prompt, deadline)
@@ -379,18 +495,47 @@ def run_session(
                 event = "EOF"
             evidence.interactions.append(Interaction(None, event, initial_prompt))
             evidence.reason = event
+            _observe_terminal(child, evidence, "After startup wait")
             if event != "EOF":
-                for command in plan:
+                for command_index, command in enumerate(plan, 1):
                     now = time.monotonic()
                     if now >= session_deadline:
-                        evidence.reason = "TIMEOUT"
-                        break
-                    deadline = min(session_deadline, now + timeout)
-                    if not _dispatch(child, command.text, deadline):
                         evidence.interactions.append(
                             Interaction(command.text, "TIMEOUT", "command dispatch")
                         )
                         evidence.reason = "TIMEOUT"
+                        break
+                    deadline = min(session_deadline, now + timeout)
+                    records = [
+                        record
+                        for record in evidence.action_dispatch
+                        if record.command_index == command_index
+                    ]
+                    dispatch_event = "SENT"
+                    for record in records:
+                        dispatch_event = (
+                            _dispatch(child, record, deadline)
+                            if child.isalive()
+                            else "EOF"
+                        )
+                        if dispatch_event != "SENT":
+                            break
+                    if dispatch_event != "SENT":
+                        reader.collect_available()
+                        event = (
+                            "EOF"
+                            if dispatch_event == "EOF" or not child.isalive()
+                            else "TIMEOUT"
+                        )
+                        evidence.interactions.append(
+                            Interaction(command.text, event, "command dispatch")
+                        )
+                        evidence.reason = event
+                        _observe_terminal(
+                            child,
+                            evidence,
+                            f"After input {command_index} dispatch stopped",
+                        )
                         break
                     evidence.dispatched.append(command.text)
                     evidence.undispatched.pop(0)
@@ -399,6 +544,9 @@ def run_session(
                         Interaction(command.text, event, command.prompt or "EOF")
                     )
                     evidence.reason = event
+                    _observe_terminal(
+                        child, evidence, f"After input {command_index} wait"
+                    )
                     if event != "PROMPT":
                         break
             if evidence.reason == "PROMPT":

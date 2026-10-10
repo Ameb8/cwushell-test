@@ -1,6 +1,6 @@
 # Prompt, termination, and system-command evidence
 
-`cwushell_test.shell_scenarios` supplies immutable `PROMPT_CASES` (T1, eight
+`cwushell_test.shell_scenarios` supplies immutable `PROMPT_CASES` (T1, nine
 cases), `TERMINATION_CASES` (T2, five cases), and `SYSTEM_CASES` (T6, twelve
 cases). Identifiers are stable within each suite. These definitions cover every
 T1/T2/T6 input in specification section 6. The [full workflow](workflow.md)
@@ -79,7 +79,7 @@ timeout. Synthetic fixture assertions verify the harness, not student output.
 
 | Acceptance criterion | Test evidence |
 | --- | --- |
-| Complete inventory, exact spaces/tabs, independent sessions | Inventory and all-input integration checks cover 25 fresh PIDs/directories and exact received lines, with no appended commands |
+| Complete inventory, exact spaces/tabs, independent sessions | Inventory and all-input integration checks cover 26 fresh PIDs/directories and exact received lines, with no appended commands |
 | Requested/reset prompts and state observation pacing | Wait-target assertions, received directory/environment observations, and synthetic early-input detector |
 | Report compatibility, no output judgments | All-case report check, adapter identity/context test, and deviation checks retaining exit 7, arbitrary pwd/echo output, and unchanged files |
 | Startup fallback and stopped sequences | Startup-only/missing/early-exit checks; mismatch, continuous-output timeout, and crash tests for each two-command prompt/cd/export/unset sequence |
@@ -99,5 +99,50 @@ Both modes retain the same execution observations and fixture context; no output
 correctness label is introduced. Small-capture tests cover startup exit, crashes,
 continuous output timeouts, prompt detection after truncation, and a subsequent
 independent case with no leaked listing fixtures. Full CLI/report checks cover all
-58 cases and distinguish fully sent input from input left undispatched by startup
+59 cases and distinguish fully sent input from input left undispatched by startup
 exit. Tests keep process ownership in the existing finally-cleanup fixtures.
+
+## Optional DEL usability observation (#46)
+
+`T1.backspace-del` is a fresh independent session with `TERM=xterm`. It sends
+four ordered actions: type `b"echo hellx"`, key `b"\x7f"` exactly once, type
+`b"o"`, and Enter `b"\n"`. The intended resulting line is `echo hello`; this
+is planned intent and is never inserted into observed output. After a returning
+prompt, `echo keyboard_alive` plus LF is sent in that same session. Timeout,
+exit or crash stops recovery and records its undispatched state.
+
+This is optional interactive usability, not an assignment grading requirement:
+assignment.md does not explicitly mandate cursor editing/history. Canonical
+terminal-driver erase behavior can account for deletion; success alone does not
+establish a student-implemented line editor. The observed VERASE and whether it
+equals DEL are shown without remapping. A cleaned transcript alone cannot
+establish editing behavior. No BS, arrow/history, Ctrl-C, EOF, or job-control
+probe is added by this case.
+
+`tests/test_keyboard.py` uses `fixtures/keyboard_shell.py`, a byte-oriented
+synthetic program requiring neither student binaries nor readline. Tests verify
+exact incoming bytes and supported deletion, unsupported editing and differing
+VERASE, timeout/exit/crash recovery suppression and later fresh sessions, real
+partial dispatch against a stopped reader, and one deadline across keystrokes.
+Existing scenario and CLI tests verify canonical-driver deletion and all 59
+normal workflow cases. Both renderers are checked for exact raw control/ANSI and
+invalid UTF-8 preservation, hostile text containment, capture bounds, and preview
+shortening distinct from raw truncation. Test-side finally cleanup owns each
+synthetic group; finite outer timeouts remain enabled.
+
+### Issue #46 acceptance mapping
+
+| Contract | Implementation and evidence |
+| --- | --- |
+| Exact DEL bytes, intended line kept separate, same-session recovery | Stable `T1.backspace-del` action tuple; byte-oriented supported/unsupported tests compare real incoming bytes, observed lines and recovery order |
+| VERASE context without remapping, driver-editing limits, optional usability | Read-only snapshots and shared case notes; differing-VERASE and canonical-driver tests; both report views |
+| CLI registration with existing T1–T6 retained, equivalent HTML/Markdown | Existing T1 inventory registration; 59-case console/module/script and HTML CLI checks; shared detailed traversal |
+| Planned actions, exact bytes, fully sent/partial/remaining accounting | `Action`, `ActionDispatch`, `Command.input_actions`; reports and real blocked-reader test, independent of output cap |
+| One original monotonic deadline, no between-key prompt waits, prompt-paced recovery | Shared `_dispatch` loop and original reader deadline; delayed-write deadline test and real recovery recording |
+| Fresh sessions, startup synchronization/fallback, bounded capture/cleanup | Shared `run_session`; keyboard startup/fallback and failure tests plus existing isolation/process-group lifecycle tests |
+| Initial/subsequent TERM/profile, flags and VERASE without forced editing | Controlled xterm exception, termios snapshots, raw-mode/different-erase/canonical-mode fixture checks |
+| Exact bounded raw prefix alongside cleaned text, inert hostile content | `raw_output_escaped`, both shared renderers, control/ANSI/invalid-UTF-8/hostile-text test with a 140-byte cap |
+| Prompt/exit/signal, capture counts/truncation, recovery and cleanup notes | Shared detailed evidence fields; timeout/exit/crash tests and existing report/lifecycle tests |
+| Full evidence accessible/searchable, preview shortening distinct from truncation | Native HTML disclosures, existing text-content search; raw-view and preview tests, full CLI HTML checks |
+| Stop affected sequence on fault, continue later fresh cases, separate cleanup signals | Timeout, partial-write, startup-exit, normal-exit and crash tests with recovery accounting; later independent fresh cases |
+| No grades, output predicates or replacement evidence; sibling boundaries retained | Scenario stores input/context only; reports preserve actual evidence and label optional usability; no BS/history/signals/job-control scenarios added |

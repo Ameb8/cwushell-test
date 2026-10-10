@@ -107,19 +107,94 @@ def _case(
             "Initial value", "Absent" if initial_value is None else initial_value
         )
 
-    result += _commands("Planned commands", [command.text for command in case.commands])
-    for index, command in enumerate(case.commands, 1):
+    if case.has_action_plan:
+        result += renderer.section("Planned commands and ordered keystroke actions")
+        result += renderer.text(
+            "Interaction labels describe the plan, not observed edited commands. "
+            "Type sends text bytes; Key sends a literal sequence; Enter sends one "
+            "explicit LF. No LF is appended to other actions. Recovery waits for "
+            "the preceding prompt. Each interaction has one original deadline.\n\n"
+        )
+        for input_index, command in enumerate(case.commands, 1):
+            result += _field(f"Planned input {input_index} label", command.text)
+            result += _field(
+                "Exact planned input bytes",
+                repr(b"".join(action.data for action in command.input_actions)),
+            )
+            for action_index, action in enumerate(command.input_actions, 1):
+                result += _field(
+                    f"Planned action {input_index}.{action_index} ({action.kind})",
+                    repr(action.data),
+                )
+        for label, commands in (
+            ("Dispatched commands (fully sent)", session.dispatched),
+            ("Remaining undispatched commands", session.undispatched),
+        ):
+            result += renderer.section(label)
+            result += _field("Interaction labels", repr(commands))
+        result += renderer.section("Action dispatch accounting")
+        for record in session.action_dispatch:
+            size = len(record.action.data)
+            state = (
+                "Fully sent"
+                if record.sent_bytes == size
+                else "Partially sent"
+                if record.sent_bytes
+                else "Undispatched"
+            )
+            result += _field(
+                f"Action {record.command_index}.{record.action_index} ({record.action.kind})",
+                f"{state}; {record.sent_bytes}/{size} bytes; "
+                f"sent={record.action.data[: record.sent_bytes]!r}; "
+                f"remaining={record.action.data[record.sent_bytes :]!r}",
+            )
+        if session.undispatched:
+            result += renderer.text(
+                "Sequence stopped; recovery may remain undispatched. The execution "
+                "events below identify the triggering wait or dispatch event.\n\n"
+            )
+    else:
+        result += _commands(
+            "Planned commands", [command.text for command in case.commands]
+        )
+        result += _commands("Dispatched commands (fully sent)", session.dispatched)
+        result += _commands("Remaining undispatched commands", session.undispatched)
+        if session.undispatched:
+            result += renderer.text(
+                "Incomplete command sequence. A command dispatch timeout can send a "
+                "partial line; that input remains in the undispatched list.\n\n"
+            )
+    for input_index, command in enumerate(case.commands, 1):
         result += _field(
-            f"Planned input {index} wait target",
+            f"Planned input {input_index} wait target",
             command.prompt if command.prompt is not None else "EOF",
         )
-    result += _commands("Dispatched commands (fully sent)", session.dispatched)
-    result += _commands("Remaining undispatched commands", session.undispatched)
-    if session.undispatched:
-        result += renderer.text(
-            "Incomplete command sequence. A command dispatch timeout can send a "
-            "partial line; that input remains in the undispatched list.\n\n"
+    result += renderer.section("Terminal settings (read-only observations)")
+    result += _field("Terminal/key-sequence profile", session.terminal_profile)
+    result += renderer.text(
+        "TERM is the controlled launch environment value. Snapshots are taken "
+        "through the owned PTY only; target changes between snapshots are not "
+        "observable. No termios editing modes or erase keys are forced.\n\n"
+    )
+    for terminal_observation in session.terminal_observations:
+        result += _field("Terminal snapshot phase", terminal_observation.phase)
+        if terminal_observation.error is not None:
+            result += _field(
+                "Terminal snapshot unavailable", terminal_observation.error
+            )
+            continue
+        result += _field(
+            "Termios flags (iflag, oflag, cflag, lflag)", terminal_observation.flags
         )
+        result += _field("Relevant termios modes", dict(terminal_observation.modes))
+        result += _field(
+            "Observed VERASE (exact bytes)", repr(terminal_observation.verase)
+        )
+        if case.has_action_plan:
+            result += _field(
+                "Observed VERASE equals DEL (\\x7f)",
+                terminal_observation.verase == b"\x7f",
+            )
 
     result += renderer.section("Combined PTY terminal output")
     result += renderer.text(
@@ -128,6 +203,13 @@ def _case(
         "and line endings are normalized to LF. Evidence text is not a harness judgment.\n\n"
     )
     result += _block(session.output) + "\n"
+    result += renderer.section("Raw PTY terminal bytes (escaped representation)")
+    result += renderer.text(
+        "Exact raw bytes from the same bounded retained prefix as the cleaned "
+        "transcript, shown as an ASCII bytes literal. Escapes preserve ANSI, CR, "
+        "backspace and invalid UTF-8; no terminal controls execute here.\n\n"
+    )
+    result += _block(case.raw_output_escaped) + "\n"
     result += renderer.section("Capture notes")
     result += renderer.text(
         "TRUNCATED: retained raw terminal-output prefix only.\n\n"
@@ -188,7 +270,10 @@ def _case(
         result += _field("Event observation", event.reason)
         result += _field("Wait target", event.waiting_for)
         if event.command is not None:
-            result += _commands("Event input", [event.command])
+            if case.has_action_plan:
+                result += _field("Event interaction label", event.command)
+            else:
+                result += _commands("Event input", [event.command])
     if (
         session.interactions
         and session.interactions[0].reason == "TIMEOUT"
@@ -220,8 +305,8 @@ def _case(
     )
     if not session.cleanup_actions:
         result += renderer.text("No cleanup actions recorded.\n\n")
-    for action in session.cleanup_actions:
-        result += _field("Cleanup action", action)
+    for cleanup_action in session.cleanup_actions:
+        result += _field("Cleanup action", cleanup_action)
     for note in case.notes:
         result += _field("Execution note", note)
     return result + renderer.finish_case()

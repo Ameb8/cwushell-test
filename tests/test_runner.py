@@ -34,13 +34,13 @@ def details(markdown: str) -> list[str]:
 
 def assert_complete_report(markdown: str, terminal: str, target: Path, output: Path):
     rows = summary_rows(markdown)
-    assert len(rows) == len(INVENTORY) == 58
+    assert len(rows) == len(INVENTORY) == 59
     assert [row[1] for row in rows] == [case.case_id for case in INVENTORY]
-    assert len(details(markdown)) == 58
+    assert len(details(markdown)) == 59
     assert f"Target binary: {target}" in terminal
     assert f"Host architecture: {platform.machine()}" in terminal
     assert f"Markdown report: {output}" in terminal
-    assert "Execution summary: 58 cases" in terminal
+    assert "Execution summary: 59 cases" in terminal
     for suite in range(1, 7):
         assert f"Executing T{suite}:" in terminal
     for row, detail in zip(rows, details(markdown), strict=True):
@@ -127,7 +127,7 @@ def assert_groups_released(log: Path, count: int):
         assert int(fields[2]) not in pgids or fields[0] == "Z"
 
 
-# Launch latency is separate from interaction/cleanup allowances; 58 real PTYs
+# Launch latency is separate from interaction/cleanup allowances; 59 real PTYs
 # can take about 50 seconds on hosts with large descriptor limits.
 @pytest.mark.timeout(180)
 @pytest.mark.parametrize("entry", ["console", "module", "script"])
@@ -177,12 +177,20 @@ def test_full_cli_inventory(entry, tmp_path: Path, recorded_groups):
         for command in scenario.commands:
             assert command.text.replace("\t", "\\t") in section
         assert "EARLY INPUT" not in section
-        assert "Remaining undispatched commands\n\nNone." in section
+        assert "Remaining undispatched commands\n\nNone." in section or (
+            scenario.case_id == "T1.backspace-del"
+            and "Interaction labels:\n\n```text\n[]" in section
+        )
+        cleaned_section = section.split("#### Raw PTY terminal bytes", 1)[0]
         received = [
             json.loads(part.splitlines()[0])[0]
-            for part in section.split("RECEIVED ")[1:]
+            for part in cleaned_section.split("RECEIVED ")[1:]
         ]
-        assert received == [command.text for command in scenario.commands]
+        assert received == (
+            ["echo hello", "echo keyboard_alive"]
+            if scenario.case_id == "T1.backspace-del"
+            else [command.text for command in scenario.commands]
+        )
         initial = json.loads(section.split("INITIAL ", 1)[1].splitlines()[0])
         assert initial["entries"] == sorted(
             fixture.path
@@ -210,11 +218,19 @@ def test_full_cli_inventory(entry, tmp_path: Path, recorded_groups):
                 in section
             )
             assert "\nfixture_alpha fixture_beta\ncwushell>" in section
+        elif scenario.case_id == "T1.backspace-del":
+            assert "b'echo hellx\\x7fo\\n'" in section
+            assert "Action 1.2 (key)" in section
+            assert "Fully sent; 1/1 bytes; sent=b'\\x7f'" in section
+            assert "Observed VERASE equals DEL" in section
+            assert "Initial value:\n\n```text\nxterm\n```" in section
+            assert "Raw PTY terminal bytes" in section
+            assert "Canonical terminal-driver erase behavior" in section
         elif scenario.case_id == "T6.cd":
             assert initial["fixture_dir"] == []
-            assert json.loads(section.split("RECEIVED ")[-1].splitlines()[0])[2] == str(
-                Path(initial["cwd"]) / "fixture_dir"
-            )
+            assert json.loads(cleaned_section.split("RECEIVED ")[-1].splitlines()[0])[
+                2
+            ] == str(Path(initial["cwd"]) / "fixture_dir")
         elif scenario.case_id == "T6.export":
             assert initial["export"] is None
             assert 'ENVIRONMENT "fixture_value"' in section
@@ -227,7 +243,7 @@ def test_full_cli_inventory(entry, tmp_path: Path, recorded_groups):
     assert "After process/PTY cleanup, before directory removal" in copy_section
     assert "CWUSHELL_TEST_EXPORT" in markdown and "CWUSHELL_TEST_UNSET" in markdown
     assert "does not establish full Bash compatibility" in markdown
-    assert_groups_released(recorded_groups, 58)
+    assert_groups_released(recorded_groups, 59)
 
 
 @pytest.mark.timeout(300)
@@ -270,7 +286,7 @@ def test_repeated_full_cli_faults_bounds_and_descriptor_release(
         markdown = output.read_text()
         assert_complete_report(markdown, terminal.out, SHELL.resolve(), output)
         assert len(list(Path("/proc/self/fd").iterdir())) == baseline
-        for scenario, session in zip(INVENTORY, sessions[-58:], strict=True):
+        for scenario, session in zip(INVENTORY, sessions[-59:], strict=True):
             assert (
                 session.interaction_seconds
                 <= (1 + len(scenario.commands)) * timeout + 0.25
@@ -284,7 +300,7 @@ def test_repeated_full_cli_faults_bounds_and_descriptor_release(
                 os.waitpid(session.pid, os.WNOHANG)
         if mode == "integration":
             by_id = dict(
-                zip([case.case_id for case in INVENTORY], sessions[-58:], strict=True)
+                zip([case.case_id for case in INVENTORY], sessions[-59:], strict=True)
             )
             assert by_id["T1.prompt-reset"].undispatched == ["prompt"]
             assert by_id["T1.spaces.cpu"].truncated
@@ -297,7 +313,7 @@ def test_repeated_full_cli_faults_bounds_and_descriptor_release(
             assert "TRUNCATED: retained raw terminal-output prefix only" in markdown
             assert "INCOMPLETE_DISPATCH" in terminal.out
             assert "b'cleanup contents\\n'" in markdown
-    assert_groups_released(recorded_groups, 116)
+    assert_groups_released(recorded_groups, 118)
 
 
 def test_missing_printenv_is_actionable_before_launch(monkeypatch):
@@ -341,7 +357,7 @@ def test_report_write_error_exits_one(tmp_path: Path, capsys, recorded_groups):
     assert str(output) in terminal.err
     assert "parent directory" in terminal.err
     assert "Markdown report:" not in terminal.out
-    assert_groups_released(recorded_groups, 58)
+    assert_groups_released(recorded_groups, 59)
 
 
 @pytest.mark.timeout(180)
@@ -383,11 +399,22 @@ def test_full_html_cli_inventory(tmp_path: Path, recorded_groups):
     document = output.read_text()
     parser = CaseLinks()
     parser.feed(document)
-    assert len(parser.cases) == len(INVENTORY) == 58
-    assert len(set(parser.cases)) == 58
+    assert len(parser.cases) == len(INVENTORY) == 59
+    assert len(set(parser.cases)) == 59
     for scenario in INVENTORY:
         assert scenario.case_id in document
     assert "EARLY INPUT" not in document
+    for label in (
+        "T1.backspace-del",
+        "Action dispatch accounting",
+        "Action 1.2 (key)",
+        "echo hellx\\x7fo\\n",
+        "Observed VERASE equals DEL",
+        "echo keyboard_alive",
+        "Raw PTY terminal bytes",
+        "Canonical terminal-driver erase behavior",
+    ):
+        assert label in document
 
 
 @pytest.mark.timeout(180)
@@ -422,4 +449,4 @@ def test_full_cli_undispatched_controlled_commands(
             == 2
         )
     assert "No fixtures recorded." in by_id["T6.echo"]
-    assert_groups_released(recorded_groups, 58)
+    assert_groups_released(recorded_groups, 59)

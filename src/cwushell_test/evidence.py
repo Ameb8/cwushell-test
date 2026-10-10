@@ -33,7 +33,8 @@ class CaseEvidence:
     """One independent session and its exact planned input and context.
 
     Pass the original Command sequence and returned Evidence, without rewriting
-    tabs. A dispatch timeout may send a partial line; only fully dispatched lines
+    tabs or actions. For action plans, text is an interaction label, not an
+    observed edited command. A dispatch timeout may send a partial line; only fully dispatched interactions
     appear in session.dispatched, as defined by the PTY helper.
     """
 
@@ -57,6 +58,15 @@ class CaseEvidence:
         ):
             if not getattr(self, name):
                 object.__setattr__(self, name, getattr(self.session, name))
+
+    @property
+    def raw_output_escaped(self) -> str:
+        """Exact bounded prefix, represented as inert ASCII bytes literal text."""
+        return repr(self.session.raw_output)
+
+    @property
+    def has_action_plan(self) -> bool:
+        return any(command.actions for command in self.commands)
 
     @property
     def summary(self) -> CaseSummary:

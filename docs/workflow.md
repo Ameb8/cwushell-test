@@ -1,10 +1,10 @@
 # Complete evidence workflow
 
 `cwushell_test.runner` registers the existing inventories in T1–T6 order:
-8 prompt/whitespace, 5 termination, 11 CPU, 11 memory, 11 help, and 12
+9 prompt/whitespace/usability, 5 termination, 11 CPU, 11 memory, 11 help, and 12
 system-command cases. Every scenario invokes the shared PTY helper once. Only
-the prompt/reset, previous-status/exit, cd/pwd, export/printenv, and unset/printenv
-sequences share their own sessions. No extra verification or exit input is added.
+the prompt/reset, previous-status/exit, cd/pwd, export/printenv, unset/printenv,
+and DEL editing/recovery sequences share their own sessions. No extra verification or exit input is added.
 
 The CLI resolves invocation-relative paths and validates Linux, Python 3.14+,
 and the target before running. The runner requires executable host utilities
@@ -81,7 +81,7 @@ acceptance predicates.
 
 | Criterion | Implementation and verification |
 | --- | --- |
-| Both requested entry points, defaults, explicit limits, paths with spaces, CLI validation | `test_full_cli_inventory` uses console/module/script subprocesses outside the checkout, checks every actual received input and 58 case rows; `test_cli.py` retains argument/environment validation. The PTY launch quotes the sole executable for pexpect's command parser to preserve space-containing paths. |
+| Both requested entry points, defaults, explicit limits, paths with spaces, CLI validation | `test_full_cli_inventory` uses console/module/script subprocesses outside the checkout, checks every actual received input and 59 case rows; `test_cli.py` retains argument/environment validation. The PTY launch quotes the sole executable for pexpect's command parser to preserve space-containing paths. |
 | Header, live T1–T6 progress, case/event summary and actual destination | `runner.execute`; each full-run test checks header, suite updates, every summary row/event label, and writer destination. |
 | Timestamp/path/architectures/kernel/limits and session context | Metadata collection, backward-compatible `host_architecture` field, detailed report context; full-run checks plus ELF byte-order/target-vs-host test. |
 | Shared observed summaries and complete detailed evidence | Both presentations use `CaseEvidence.summary`; full-run checks compare labels/events and required sections, fixtures and environment. Existing renderer tests verify hostile/arbitrary text containment. |
@@ -93,7 +93,7 @@ acceptance predicates.
 | Real Linux synthetic end-to-end verification and documented limits | `test_runner.py`, commands above, existing synthetic suites; `task test` and `task check` validate without assignment materials. |
 
 Full-run tests have finite 180-second outer deadlines; the repeated two-run check
-uses 300 seconds. These account for 58 separately measured PTY launches per run,
+uses 300 seconds. These account for 59 separately measured PTY launches per run,
 which can approach 50 seconds on hosts with large descriptor limits. Each
 interaction and cleanup still uses the much shorter configured per-case bounds,
 with 0.25 seconds of scheduling tolerance in test assertions.

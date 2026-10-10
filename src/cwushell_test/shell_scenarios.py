@@ -2,7 +2,7 @@
 
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Mapping
+from typing import Literal, Mapping
 
 from cwushell_test.evidence import CaseEvidence
 from cwushell_test.fixtures import (
@@ -13,7 +13,7 @@ from cwushell_test.fixtures import (
     UNSET_ENVIRONMENT,
     Fixture,
 )
-from cwushell_test.pty_session import Command, run_session
+from cwushell_test.pty_session import Action, Command, run_session
 
 BUILTIN_COVERAGE_NOTE = (
     "These are representative internal-command observations; coverage does not "
@@ -34,6 +34,7 @@ class ShellScenario:
     fixtures: tuple[Fixture, ...] = ()
     controlled_environment: Mapping[str, str | None] = field(default_factory=dict)
     notes: tuple[str, ...] = ()
+    terminal_type: Literal["dumb", "xterm"] = "dumb"
 
     def run(
         self,
@@ -50,6 +51,7 @@ class ShellScenario:
             max_output_bytes=max_output_bytes,
             fixtures=self.fixtures,
             controlled_environment=self.controlled_environment,
+            terminal_type=self.terminal_type,
         )
         return CaseEvidence(
             self.case_id,
@@ -81,6 +83,36 @@ PROMPT_CASES = (
     _case("T1", "tabs.memory", "meminfo\t-t\t-u", title="Tab-separated memory input"),
     _case("T1", "spaces.echo", "echo   alpha   beta"),
     _case("T1", "tabs.echo", "echo\talpha\tbeta", title="Tab-separated echo input"),
+    ShellScenario(
+        "T1.backspace-del",
+        "T1",
+        "Optional interactive usability: trailing-character deletion using DEL",
+        (
+            Command(
+                "DEL backspace editing",
+                actions=(
+                    Action("type", b"echo hellx"),
+                    Action("key", b"\x7f"),
+                    Action("type", b"o"),
+                    Action("enter", b"\n"),
+                ),
+            ),
+            Command("echo keyboard_alive"),
+        ),
+        terminal_type="xterm",
+        notes=(
+            "Optional interactive-usability observation: assignment.md does not "
+            "explicitly mandate cursor editing/history. Intended resulting line: "
+            "echo hello (planned intent, not observed input or output).",
+            "Canonical terminal-driver erase behavior may account for deletion; "
+            "success alone does not establish a student-implemented line editor. "
+            "A cleaned transcript alone cannot establish editing behavior. "
+            "Unsupported input is recorded for manual review without grading.",
+            "TERM=xterm is a controlled exception to TERM=dumb, compatible with "
+            "xterm key sequences. DEL is sent literally with no VERASE remapping. "
+            "No editing mode is forced; only normal launch echo suppression is used.",
+        ),
+    ),
 )
 
 TERMINATION_CASES = (
