@@ -38,6 +38,10 @@ EXTERNAL_FIXTURES = (
     Fixture("removable.txt", "file", b"cwushell-test removable fixture\n"),
     Fixture("copied.txt", "absent"),
 )
+LISTING_FIXTURES = (
+    Fixture("fixture_alpha.txt", "file", b"cwushell-test alpha listing fixture\n"),
+    Fixture("fixture_beta.txt", "file", b"cwushell-test beta listing fixture\n"),
+)
 CD_FIXTURES = (Fixture("fixture_dir", "directory"),)
 EXPORT_ENVIRONMENT: dict[str, str | None] = {"CWUSHELL_TEST_EXPORT": None}
 UNSET_ENVIRONMENT: dict[str, str | None] = {"CWUSHELL_TEST_UNSET": "fixture_value"}

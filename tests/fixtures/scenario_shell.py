@@ -25,6 +25,7 @@ emit(
         {
             "pid": os.getpid(),
             "cwd": os.getcwd(),
+            "entries": sorted(os.listdir()),
             "export": os.environ.get("CWUSHELL_TEST_EXPORT"),
             "unset": os.environ.get("CWUSHELL_TEST_UNSET"),
             "fixture_dir": (
@@ -45,6 +46,9 @@ if mode not in ("missing", "integration"):
 
 for line in sys.stdin:
     command = line.removesuffix("\n")
+    if mode == "ignored_commands" and command.split()[0] in ("ls", "echo"):
+        emit(prompt)
+        continue
     # Avoid synchronizing on a requested prompt printed as part of this record.
     # JSON decoding still returns the exact received command.
     received = json.dumps([command, os.getpid(), os.getcwd()]).replace(">", "\\u003e")
@@ -115,8 +119,11 @@ for line in sys.stdin:
     elif command.startswith("printenv "):
         value = os.environ.get(command.split()[1])
         emit(f"ENVIRONMENT {json.dumps(value)}\n")
-    elif command == "echo":
-        emit("\n")
+    elif command == "ls":
+        # Read the actual prepared directory; style/order are deliberately arbitrary.
+        emit("\x1b[32m" + "\t".join(sorted(os.listdir(), reverse=True)) + "\x1b[0m\n")
+    elif command.split()[0] == "echo":
+        emit(" ".join(command.split()[1:]) + "\n")
     else:
         emit("synthetic output for " + json.dumps(command) + "\n")
     # Detect input arriving before the preceding command's returning prompt.

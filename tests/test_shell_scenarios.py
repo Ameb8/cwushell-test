@@ -51,7 +51,7 @@ def test_exact_inventory_and_wait_targets():
         ["meminfo -x"],
         ["ls"],
         ["pwd"],
-        ["echo"],
+        ["echo fixture_alpha fixture_beta"],
         ["cat source.txt"],
         ["cp source.txt copied.txt"],
         ["rm removable.txt"],
@@ -182,6 +182,9 @@ def test_all_exact_inputs_independent_sessions_and_report(owned_sessions, monkey
         session = case.session
         assert session.dispatched == [c.text for c in definition.commands]
         assert session.undispatched == []
+        assert records(case, "INITIAL ")[0]["entries"] == sorted(
+            fixture.path for fixture in definition.fixtures if fixture.kind != "absent"
+        )
         received = records(case, "RECEIVED ")
         assert [row[0] for row in received] == session.dispatched
         assert all(row[1] == session.pid for row in received)
@@ -232,7 +235,9 @@ def test_all_exact_inputs_independent_sessions_and_report(owned_sessions, monkey
             assert after["source.txt"].contents == before["source.txt"].contents
     markdown = markdown_for(cases)
     assert "Escaped input representation" in markdown
-    assert "\t" not in markdown
+    # Command representations escape tabs; terminal listing tabs remain evidence.
+    for section in markdown.split("#### Planned commands")[1:]:
+        assert "\t" not in section.split("#### Combined PTY terminal output", 1)[0]
     for case in cases:
         assert case.case_id in markdown
         for command in case.commands:
@@ -384,3 +389,118 @@ def test_exit_signal_and_ignored_exit_are_distinct(monkeypatch, owned_sessions):
     assert ignored.session.reason == "TIMEOUT"
     assert ignored.session.interactions[-1].waiting_for == "EOF"
     assert "exit ignored" in ignored.session.output
+
+
+@pytest.mark.integration
+@pytest.mark.parametrize(
+    "definition", [scenarios.SYSTEM_CASES[3], scenarios.SYSTEM_CASES[5]]
+)
+def test_controlled_listing_and_echo_evidence(definition, monkeypatch, owned_sessions):
+    cases = []
+    command = definition.commands[0].text
+    for mode in ("record", "ignored_commands"):
+        monkeypatch.setenv("SCENARIO_MODE", mode)
+        case = definition.run(SHELL, timeout=1, max_output_bytes=4096)
+        cases.append(case)
+        session = case.session
+        initial = records(case, "INITIAL ")[0]
+        received = records(case, "RECEIVED ")
+        assert received == (
+            [[command, session.pid, session.working_directory]]
+            if mode == "record"
+            else []
+        )
+        dispatch_record = ""
+        body = ""
+        if mode == "record":
+            dispatch_record = "RECEIVED " + json.dumps(received[0]) + "\n"
+            body = (
+                "fixture_beta.txt\tfixture_alpha.txt\n"
+                if case.case_id == "T6.ls"
+                else "fixture_alpha fixture_beta\n"
+            )
+        # Entire retained evidence, including both actual prompts and no PTY echo.
+        assert session.output == (
+            "INITIAL "
+            + json.dumps(initial)
+            + "\ncwushell>"
+            + dispatch_record
+            + body
+            + "cwushell>"
+        )
+        assert not session.truncated
+        assert session.dispatched == [command] and session.undispatched == []
+        assert session.reason == "COMPLETED"
+        assert [event.reason for event in session.interactions] == ["PROMPT", "PROMPT"]
+        assert case.summary.outcomes == ("COMPLETED", "PROMPT")
+        if case.case_id == "T6.ls":
+            assert case.fixtures == fixtures.LISTING_FIXTURES
+            assert initial["entries"] == ["fixture_alpha.txt", "fixture_beta.txt"]
+            for phase in ("before", "after"):
+                assert [
+                    (o.path, o.exists, o.contents, o.error)
+                    for o in case.file_observations
+                    if o.phase == phase
+                ] == [
+                    (fixture.path, True, fixture.contents, None)
+                    for fixture in fixtures.LISTING_FIXTURES
+                ]
+        else:
+            assert initial["entries"] == []
+            assert case.fixtures == () and case.file_observations == ()
+            assert case.title == command
+        markdown = markdown_for((case,))
+        assert "```text\n" + session.output + "\n```" in markdown
+        for heading in ("Planned commands", "Dispatched commands (fully sent)"):
+            section = markdown.split("#### " + heading, 1)[1].split("#### ", 1)[0]
+            assert "```text\n" + command + "\n```" in section
+        assert_released(case, owned_sessions)
+    assert cases[0].session.output != cases[1].session.output
+    assert cases[0].fixtures == cases[1].fixtures
+    assert cases[0].summary.outcomes == cases[1].summary.outcomes
+    assert len({case.session.working_directory for case in cases}) == 2
+
+
+@pytest.mark.integration
+@pytest.mark.parametrize(
+    "definition", [scenarios.SYSTEM_CASES[3], scenarios.SYSTEM_CASES[5]]
+)
+@pytest.mark.parametrize("mode", ["startup_exit", "crash", "hang", "record"])
+def test_controlled_commands_faults_and_capture_bounds(
+    definition, mode, monkeypatch, owned_sessions
+):
+    monkeypatch.setenv("SCENARIO_MODE", mode)
+    timeout = 1.0 if mode == "startup_exit" else 0.3
+    case = definition.run(SHELL, timeout=timeout, max_output_bytes=32)
+    assert case.fixtures == definition.fixtures
+    assert case.session.truncated and len(case.session.raw_output) == 32
+    assert case.session.output.startswith("INITIAL ")
+    assert case.session.dispatched == (
+        [] if mode == "startup_exit" else [definition.commands[0].text]
+    )
+    assert case.session.undispatched == (
+        [definition.commands[0].text] if mode == "startup_exit" else []
+    )
+    assert (
+        case.session.reason
+        == {
+            "startup_exit": "EOF",
+            "crash": "EOF",
+            "hang": "TIMEOUT",
+            "record": "COMPLETED",
+        }[mode]
+    )
+    assert case.session.interaction_seconds <= 2 * timeout + 0.25
+    if mode == "crash":
+        assert case.session.signal_status == signal.SIGSEGV
+    if definition.fixtures:
+        assert len(case.file_observations) == 4
+        assert all(o.exists and o.error is None for o in case.file_observations)
+    markdown = markdown_for((case,))
+    assert "TRUNCATED: retained raw terminal-output prefix only" in markdown
+    assert_released(case, owned_sessions)
+    monkeypatch.setenv("SCENARIO_MODE", "record")
+    later = scenarios.SYSTEM_CASES[4].run(SHELL, timeout=1)
+    assert later.session.reason == "COMPLETED"
+    assert records(later, "INITIAL ")[0]["entries"] == []
+    assert_released(later, owned_sessions)

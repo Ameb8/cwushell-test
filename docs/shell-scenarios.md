@@ -34,6 +34,16 @@ T2 waits for EOF after each terminating input. Only `/bin/true` then `exit` and
 signal, synchronization events, and cleanup termination remain separate helper
 fields. No expected exit values are stored or compared by the scenarios.
 
+T6.ls receives its own fresh `LISTING_FIXTURES`: `fixture_alpha.txt` contains
+`b"cwushell-test alpha listing fixture\n"` and `fixture_beta.txt` contains
+`b"cwushell-test beta listing fixture\n"`. It dispatches only `ls`; fixture
+context and before/after snapshots are separate from the actual terminal
+transcript. No listing order or layout is required. Standalone T6.echo dispatches
+exactly `echo fixture_alpha fixture_beta` in a separate fresh directory, using
+plain arguments without quoting, expansion, or options. T1 echo inputs remain
+unchanged. Ignored commands can still record COMPLETED/PROMPT, without an output
+judgment.
+
 T6's cat/cp/rm each receive the complete fresh `EXTERNAL_FIXTURES` set:
 `source.txt` contains `b"cwushell-test source fixture\n"`, `removable.txt` contains
 `b"cwushell-test removable fixture\n"`, and `copied.txt` is initially absent.
@@ -78,3 +88,16 @@ timeout. Synthetic fixture assertions verify the harness, not student output.
 | Exit, signal, and cleanup remain separate | All five T2 status observations; unexpected exit values; SIGSEGV and ignored-exit timeout; cleanup-only status/signal checks |
 | Initial directory/environment and coverage limits | Conflicting inherited environment tests, empty-directory observation, case context and rendered coverage note |
 | Configured tooling | Focused and complete pytest, Ruff lint/format checks, and mypy via Task |
+
+
+## Verification of issue #17
+
+Controlled-command regressions use the synthetic shell's actual directory listing
+and received echo arguments. They compare complete retained terminal evidence,
+including returned prompts, and also run a mode that silently ignores the commands.
+Both modes retain the same execution observations and fixture context; no output
+correctness label is introduced. Small-capture tests cover startup exit, crashes,
+continuous output timeouts, prompt detection after truncation, and a subsequent
+independent case with no leaked listing fixtures. Full CLI/report checks cover all
+58 cases and distinguish fully sent input from input left undispatched by startup
+exit. Tests keep process ownership in the existing finally-cleanup fixtures.
