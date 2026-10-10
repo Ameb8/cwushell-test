@@ -113,6 +113,36 @@ PROMPT_CASES = (
             "No editing mode is forced; only normal launch echo suppression is used.",
         ),
     ),
+    ShellScenario(
+        "T1.backspace-bs",
+        "T1",
+        "Optional interactive usability: trailing-character deletion using BS",
+        (
+            Command(
+                "BS backspace editing",
+                actions=(
+                    Action("type", b"echo hellx"),
+                    Action("key", b"\x08"),
+                    Action("type", b"o"),
+                    Action("enter", b"\n"),
+                ),
+            ),
+            Command("echo keyboard_alive"),
+        ),
+        terminal_type="xterm",
+        notes=(
+            "Optional interactive-usability observation: assignment.md does not "
+            "explicitly mandate cursor editing/history. Intended resulting line: "
+            "echo hello (planned intent, not observed input or output).",
+            "Canonical terminal-driver erase behavior may account for deletion; "
+            "success alone does not establish a student-implemented line editor. "
+            "A cleaned transcript alone cannot establish editing behavior. "
+            "Unsupported input is recorded for manual review without grading.",
+            "TERM=xterm is a controlled exception to TERM=dumb, compatible with "
+            "xterm key sequences. BS is sent literally with no VERASE remapping. "
+            "No editing mode is forced; only normal launch echo suppression is used.",
+        ),
+    ),
 )
 
 TERMINATION_CASES = (

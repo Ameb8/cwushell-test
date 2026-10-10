@@ -9,9 +9,11 @@ import time
 
 mode = os.environ.get("KEYBOARD_MODE", "edit")
 settings = termios.tcgetattr(0)
-if mode == "verase-bs":
+if mode in ("verase-bs", "canonical-bs"):
     settings[6][termios.VERASE] = b"\x08"
-elif mode != "canonical":
+elif mode == "verase-del":
+    settings[6][termios.VERASE] = b"\x7f"
+elif mode not in ("canonical", "canonical-bs"):
     settings[3] &= ~(termios.ICANON | termios.ECHO)
     settings[6][termios.VMIN] = 1
     settings[6][termios.VTIME] = 0
@@ -38,7 +40,7 @@ while True:
         if not value:
             raise SystemExit(0)
         incoming.extend(value)
-        if mode == "key_exit" and value == b"\x7f":
+        if mode == "key_exit" and value in (b"\x7f", b"\x08"):
             emit(
                 b"\nBYTES " + bytes(incoming).hex().encode() + b"\nkey exit evidence\n"
             )
@@ -47,7 +49,7 @@ while True:
             break
     edited = bytearray()
     for value in incoming[:-1]:
-        if mode == "edit" and value == 127:
+        if mode == "edit" and value in (127, 8):
             if edited:
                 edited.pop()
             # Raw editing evidence remains inspectable even with launch echo off.

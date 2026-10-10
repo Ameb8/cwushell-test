@@ -1,4 +1,4 @@
-"""DEL plan, real incoming bytes, failure paths, and equivalent safe reports."""
+"""DEL and BS plans, real incoming bytes, failure paths, and equivalent safe reports."""
 
 import json
 import os
@@ -18,8 +18,24 @@ from cwushell_test.runner import SUITES
 from cwushell_test.shell_scenarios import PROMPT_CASES
 
 SHELL = Path(__file__).parent / "fixtures" / "keyboard_shell.py"
-CASE = next(case for case in PROMPT_CASES if case.case_id == "T1.backspace-del")
-EXACT = b"echo hellx\x7fo\n"
+
+
+@pytest.fixture(params=["del", "bs"])
+def keyboard_case(request):
+    return next(
+        case for case in PROMPT_CASES if case.case_id == f"T1.backspace-{request.param}"
+    )
+
+
+@pytest.fixture
+def exact_input(keyboard_case):
+    return (
+        b"echo hellx"
+        + (b"\x08" if keyboard_case.case_id.endswith("bs") else b"\x7f")
+        + b"o\n"
+    )
+
+
 pytestmark = pytest.mark.integration
 
 
@@ -64,27 +80,32 @@ def incoming(case):
     ]
 
 
-def test_exact_del_actions_and_raw_editing_evidence():
+def test_exact_backspace_actions_and_raw_editing_evidence(keyboard_case, exact_input):
     assert (
-        sum(case.case_id == CASE.case_id for _, cases in SUITES for case in cases) == 1
+        sum(
+            case.case_id == keyboard_case.case_id
+            for _, cases in SUITES
+            for case in cases
+        )
+        == 1
     )
-    actions = CASE.commands[0].actions
+    actions = keyboard_case.commands[0].actions
     assert [(a.kind, a.data) for a in actions] == [
         ("type", b"echo hellx"),
-        ("key", b"\x7f"),
+        ("key", exact_input[10:11]),
         ("type", b"o"),
         ("enter", b"\n"),
     ]
-    case = CASE.run(SHELL, timeout=1)
+    case = keyboard_case.run(SHELL, timeout=1)
     session = case.session
-    assert incoming(case) == [EXACT, b"echo keyboard_alive\n"]
+    assert incoming(case) == [exact_input, b"echo keyboard_alive\n"]
     lines = [
         json.loads(line[5:])
         for line in session.output.splitlines()
         if line.startswith("LINE ")
     ]
     assert lines == ["echo hello", "echo keyboard_alive"]
-    assert session.dispatched == [c.text for c in CASE.commands]
+    assert session.dispatched == [c.text for c in keyboard_case.commands]
     assert not session.undispatched
     assert all(
         record.sent_bytes == len(record.action.data)
@@ -109,45 +130,61 @@ def test_exact_del_actions_and_raw_editing_evidence():
         assert "Action dispatch accounting" in rendered
         assert "Fully sent; 10/10 bytes" in rendered
         assert "Canonical terminal-driver erase behavior" in rendered
-        assert "Observed VERASE equals DEL" in rendered
+        assert (
+            f"Observed VERASE equals {'BS' if exact_input[10] == 8 else 'DEL'}"
+            in rendered
+        )
         assert "optional" in rendered.lower()
 
 
 @pytest.mark.parametrize(
-    "mode, resulting",
-    [("unsupported", "echo hellx\x7fo"), ("verase-bs", "echo hellx\x7fo")],
+    "mode",
+    ["unsupported", "different-verase"],
 )
-def test_unsupported_and_different_verase_are_recorded(monkeypatch, mode, resulting):
-    monkeypatch.setenv("KEYBOARD_MODE", mode)
-    case = CASE.run(SHELL, timeout=1)
-    assert incoming(case) == [EXACT, b"echo keyboard_alive\n"]
+def test_unsupported_and_different_verase_are_recorded(
+    monkeypatch, mode, keyboard_case, exact_input
+):
+    resulting = exact_input[:-1].decode()
+    erase = b"\x7f" if exact_input[10] == 8 else b"\x08"
+    monkeypatch.setenv(
+        "KEYBOARD_MODE",
+        ("verase-del" if exact_input[10] == 8 else "verase-bs")
+        if mode == "different-verase"
+        else mode,
+    )
+    case = keyboard_case.run(SHELL, timeout=1)
+    assert incoming(case) == [exact_input, b"echo keyboard_alive\n"]
     assert "LINE " + json.dumps(resulting) in case.session.output
     assert case.session.reason == "COMPLETED"
-    if mode == "verase-bs":
-        assert case.session.terminal_observations[1].verase == b"\x08"
+    if mode == "different-verase":
+        assert case.session.terminal_observations[1].verase == erase
         for rendered in (
             render_report(report_for(case)),
             render_html_report(report_for(case)),
         ):
-            assert "False" in rendered and "\\x08" in rendered
+            assert "False" in rendered and (
+                repr(erase) in rendered or escape(repr(erase)) in rendered
+            )
     assert "echo hello" not in case.session.output
 
 
 @pytest.mark.parametrize(
     "mode, reason", [("timeout", "TIMEOUT"), ("exit", "EOF"), ("crash", "EOF")]
 )
-def test_stopped_recovery_and_later_fresh_case(monkeypatch, mode, reason):
+def test_stopped_recovery_and_later_fresh_case(
+    monkeypatch, mode, reason, keyboard_case, exact_input
+):
     monkeypatch.setenv("KEYBOARD_MODE", mode)
-    broken = CASE.run(SHELL, timeout=0.25)
+    broken = keyboard_case.run(SHELL, timeout=0.25)
     assert broken.session.reason == reason
-    assert incoming(broken) == [EXACT]
+    assert incoming(broken) == [exact_input]
     assert broken.session.undispatched == ["echo keyboard_alive"]
     assert all(
         r.sent_bytes == 0
         for r in broken.session.action_dispatch
         if r.command_index == 2
     )
-    assert broken.session.interactions[-1].command == "DEL backspace editing"
+    assert broken.session.interactions[-1].command == keyboard_case.commands[0].text
     assert broken.session.raw_output
     assert broken.session.direct_child_reaped
     if mode == "exit":
@@ -158,7 +195,7 @@ def test_stopped_recovery_and_later_fresh_case(monkeypatch, mode, reason):
         assert broken.session.signal_status is None
         assert broken.session.cleanup_signal_status == signal.SIGTERM
     monkeypatch.setenv("KEYBOARD_MODE", "edit")
-    later = CASE.run(SHELL, timeout=1)
+    later = keyboard_case.run(SHELL, timeout=1)
     assert later.session.pid != broken.session.pid
     assert later.session.working_directory != broken.session.working_directory
     assert later.session.reason == "COMPLETED"
@@ -173,7 +210,7 @@ def test_stopped_recovery_and_later_fresh_case(monkeypatch, mode, reason):
         assert reason in rendered
 
 
-def test_real_partial_action_dispatch_is_bounded(monkeypatch):
+def test_real_partial_action_dispatch_is_bounded(monkeypatch, keyboard_case):
     monkeypatch.setenv("KEYBOARD_MODE", "blocked")
     commands = (
         pty.Command(
@@ -199,10 +236,10 @@ def test_real_partial_action_dispatch_is_bounded(monkeypatch):
     ):
         assert "Partially sent" in rendered and "Undispatched" in rendered
     monkeypatch.setenv("KEYBOARD_MODE", "edit")
-    assert CASE.run(SHELL, timeout=1).session.reason == "COMPLETED"
+    assert keyboard_case.run(SHELL, timeout=1).session.reason == "COMPLETED"
 
 
-def test_keystrokes_share_original_deadline(monkeypatch):
+def test_keystrokes_share_original_deadline(monkeypatch, keyboard_case):
     dispatch = pty._dispatch
     deadlines = []
 
@@ -212,17 +249,17 @@ def test_keystrokes_share_original_deadline(monkeypatch):
         return dispatch(child, record, deadline)
 
     monkeypatch.setattr(pty, "_dispatch", slow_dispatch)
-    case = CASE.run(SHELL, timeout=0.2)
+    case = keyboard_case.run(SHELL, timeout=0.2)
     assert len(deadlines) == 3 and len(set(deadlines)) == 1
     assert case.session.reason == "TIMEOUT"
     assert [r.sent_bytes for r in case.session.action_dispatch[:4]] == [10, 1, 0, 0]
-    assert case.session.undispatched == [c.text for c in CASE.commands]
+    assert case.session.undispatched == [c.text for c in keyboard_case.commands]
     assert case.session.interactions[-1].waiting_for == "command dispatch"
     assert case.session.interaction_seconds <= 0.4 + 0.25
 
 
-def test_raw_views_are_inert_exact_and_same_bounded_prefix():
-    case = CASE.run(SHELL, timeout=1, max_output_bytes=140)
+def test_raw_views_are_inert_exact_and_same_bounded_prefix(keyboard_case):
+    case = keyboard_case.run(SHELL, timeout=1, max_output_bytes=140)
     assert case.session.truncated and len(case.session.raw_output) == 140
     assert case.session.reason == "COMPLETED"
     assert b"\x1b" in case.session.raw_output and b"\xff" in case.session.raw_output
@@ -238,7 +275,7 @@ def test_raw_views_are_inert_exact_and_same_bounded_prefix():
     assert (
         "row.textContent" in html
     )  # Search indexes full retained raw/cleaned sections.
-    full = CASE.run(SHELL, timeout=1, max_output_bytes=4096)
+    full = keyboard_case.run(SHELL, timeout=1, max_output_bytes=4096)
     full.session.raw_output += (
         b"\n" + b"tail" * 300
     )  # Synthetic retained evidence for preview distinction.
@@ -248,29 +285,33 @@ def test_raw_views_are_inert_exact_and_same_bounded_prefix():
     assert escape(full.raw_output_escaped) in html
 
 
-def test_canonical_driver_deletion_and_startup_fallback(monkeypatch):
-    monkeypatch.setenv("KEYBOARD_MODE", "canonical")
-    case = CASE.run(SHELL, timeout=1)
+def test_canonical_driver_deletion_and_startup_fallback(
+    monkeypatch, keyboard_case, exact_input
+):
+    monkeypatch.setenv(
+        "KEYBOARD_MODE", "canonical-bs" if exact_input[10] == 8 else "canonical"
+    )
+    case = keyboard_case.run(SHELL, timeout=1)
     assert incoming(case) == [b"echo hello\n", b"echo keyboard_alive\n"]
     assert dict(case.session.terminal_observations[1].modes)["ICANON"] is True
     assert (
         b"".join(
             r.action.data[: r.sent_bytes] for r in case.session.action_dispatch[:4]
         )
-        == EXACT
+        == exact_input
     )
     monkeypatch.setenv("KEYBOARD_MODE", "missing")
     # This fixture intentionally omits its prompt; allow interpreter startup
     # before fallback so the byte-recorder has installed its input mode.
-    fallback = CASE.run(SHELL, timeout=1)
+    fallback = keyboard_case.run(SHELL, timeout=1)
     assert fallback.session.interactions[0].reason == "TIMEOUT"
-    assert incoming(fallback) == [EXACT, b"echo keyboard_alive\n"]
+    assert incoming(fallback) == [exact_input, b"echo keyboard_alive\n"]
     assert fallback.session.reason == "COMPLETED"
     monkeypatch.setenv("KEYBOARD_MODE", "startup_exit")
-    early = CASE.run(SHELL, timeout=1)
+    early = keyboard_case.run(SHELL, timeout=1)
     assert early.session.reason == "EOF" and early.session.exit_status == 19
     assert all(r.sent_bytes == 0 for r in early.session.action_dispatch)
-    assert early.session.undispatched == [c.text for c in CASE.commands]
+    assert early.session.undispatched == [c.text for c in keyboard_case.commands]
     assert early.session.raw_output == b"startup evidence\r\n"
 
 
@@ -290,22 +331,24 @@ def test_invalid_action_plans_rejected_before_launch(actions, owned_sessions):
     assert not owned_sessions
 
 
-def test_exit_during_keys_retains_available_output_and_unsent_actions(monkeypatch):
+def test_exit_during_keys_retains_available_output_and_unsent_actions(
+    monkeypatch, keyboard_case, exact_input
+):
     monkeypatch.setenv("KEYBOARD_MODE", "key_exit")
     dispatch = pty._dispatch
 
-    def pause_after_del(child, record, deadline):
+    def pause_after_key(child, record, deadline):
         event = dispatch(child, record, deadline)
-        if record.action.data == b"\x7f":
+        if record.action.data == exact_input[10:11]:
             time.sleep(0.05)  # Fault injection: let the fixture exit between keys.
         return event
 
-    monkeypatch.setattr(pty, "_dispatch", pause_after_del)
-    case = CASE.run(SHELL, timeout=0.5)
+    monkeypatch.setattr(pty, "_dispatch", pause_after_key)
+    case = keyboard_case.run(SHELL, timeout=0.5)
     assert case.session.reason == "EOF" and case.session.exit_status == 7
     assert [r.sent_bytes for r in case.session.action_dispatch[:4]] == [10, 1, 0, 0]
-    assert incoming(case) == [b"echo hellx\x7f"]
+    assert incoming(case) == [exact_input[:11]]
     assert "key exit evidence" in case.session.output
-    assert case.session.undispatched == [c.text for c in CASE.commands]
+    assert case.session.undispatched == [c.text for c in keyboard_case.commands]
     assert case.session.interactions[-1].waiting_for == "command dispatch"
     assert case.session.signal_status is None and case.session.direct_child_reaped

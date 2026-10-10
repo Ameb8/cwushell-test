@@ -195,6 +195,10 @@ def _case(
                 "Observed VERASE equals DEL (\\x7f)",
                 terminal_observation.verase == b"\x7f",
             )
+            result += _field(
+                "Observed VERASE equals BS (\\x08)",
+                terminal_observation.verase == b"\x08",
+            )
 
     result += renderer.section("Combined PTY terminal output")
     result += renderer.text(

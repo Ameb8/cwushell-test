@@ -153,7 +153,7 @@ Run `task test -- tests/test_html_reporting.py tests/test_cli.py` for evidence
 preservation, hostile text escaping, report order, preview/capture distinctions,
 input whitespace, event filter classification, native disclosure structure,
 format selection, default destinations, explicit paths, and write errors. The
-full synthetic HTML CLI run in `tests/test_runner.py` verifies all 59 cases reach
+full synthetic HTML CLI run in `tests/test_runner.py` verifies all 60 cases reach
 the HTML report. Browser verification should also exercise combined filters,
 search beyond previews and in file/cleanup evidence, review/reload behavior,
 keyboard disclosures, printing, and small-screen scrolling on local files.
@@ -179,7 +179,7 @@ These checks verify harness recording/rendering, not student output. Fixture
 collection, scenario execution, and CLI integration are verified separately by
 their focused tests and the full workflow tests.
 
-## Keyboard evidence and raw terminal view (#46)
+## Keyboard evidence and raw terminal view (#46, #47)
 
 Cases with explicit actions display planned interaction labels, ordered typed
 text/key/Enter actions, exact escaped input bytes including LF, and byte-level
@@ -190,7 +190,7 @@ presentation. `CaseEvidence.has_action_plan` selects this presentation;
 `raw_output_escaped` exposes an ASCII bytes literal from the bounded raw prefix.
 
 Both formats include read-only terminal-setting snapshots, controlled TERM and
-key profile, observed VERASE and DEL equality, and optional-usability context.
+key profile, observed VERASE and DEL/BS equality, and optional-usability context.
 The cleaned transcript and full escaped raw-byte view refer to the same retained
 capture; ANSI, CR, backspace and invalid UTF-8 remain inspectable. Dynamic fences
 and HTML escaping keep this text inert. HTML full-evidence disclosures include

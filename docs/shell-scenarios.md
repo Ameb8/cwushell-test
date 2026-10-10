@@ -1,6 +1,6 @@
 # Prompt, termination, and system-command evidence
 
-`cwushell_test.shell_scenarios` supplies immutable `PROMPT_CASES` (T1, nine
+`cwushell_test.shell_scenarios` supplies immutable `PROMPT_CASES` (T1, ten
 cases), `TERMINATION_CASES` (T2, five cases), and `SYSTEM_CASES` (T6, twelve
 cases). Identifiers are stable within each suite. These definitions cover every
 T1/T2/T6 input in specification section 6. The [full workflow](workflow.md)
@@ -79,7 +79,7 @@ timeout. Synthetic fixture assertions verify the harness, not student output.
 
 | Acceptance criterion | Test evidence |
 | --- | --- |
-| Complete inventory, exact spaces/tabs, independent sessions | Inventory and all-input integration checks cover 26 fresh PIDs/directories and exact received lines, with no appended commands |
+| Complete inventory, exact spaces/tabs, independent sessions | Inventory and all-input integration checks cover 27 fresh PIDs/directories and exact received lines, with no appended commands |
 | Requested/reset prompts and state observation pacing | Wait-target assertions, received directory/environment observations, and synthetic early-input detector |
 | Report compatibility, no output judgments | All-case report check, adapter identity/context test, and deviation checks retaining exit 7, arbitrary pwd/echo output, and unchanged files |
 | Startup fallback and stopped sequences | Startup-only/missing/early-exit checks; mismatch, continuous-output timeout, and crash tests for each two-command prompt/cd/export/unset sequence |
@@ -99,7 +99,7 @@ Both modes retain the same execution observations and fixture context; no output
 correctness label is introduced. Small-capture tests cover startup exit, crashes,
 continuous output timeouts, prompt detection after truncation, and a subsequent
 independent case with no leaked listing fixtures. Full CLI/report checks cover all
-59 cases and distinguish fully sent input from input left undispatched by startup
+60 cases and distinguish fully sent input from input left undispatched by startup
 exit. Tests keep process ownership in the existing finally-cleanup fixtures.
 
 ## Optional DEL usability observation (#46)
@@ -124,7 +124,7 @@ synthetic program requiring neither student binaries nor readline. Tests verify
 exact incoming bytes and supported deletion, unsupported editing and differing
 VERASE, timeout/exit/crash recovery suppression and later fresh sessions, real
 partial dispatch against a stopped reader, and one deadline across keystrokes.
-Existing scenario and CLI tests verify canonical-driver deletion and all 59
+Existing scenario and CLI tests verify canonical-driver deletion and all 60
 normal workflow cases. Both renderers are checked for exact raw control/ANSI and
 invalid UTF-8 preservation, hostile text containment, capture bounds, and preview
 shortening distinct from raw truncation. Test-side finally cleanup owns each
@@ -136,7 +136,7 @@ synthetic group; finite outer timeouts remain enabled.
 | --- | --- |
 | Exact DEL bytes, intended line kept separate, same-session recovery | Stable `T1.backspace-del` action tuple; byte-oriented supported/unsupported tests compare real incoming bytes, observed lines and recovery order |
 | VERASE context without remapping, driver-editing limits, optional usability | Read-only snapshots and shared case notes; differing-VERASE and canonical-driver tests; both report views |
-| CLI registration with existing T1–T6 retained, equivalent HTML/Markdown | Existing T1 inventory registration; 59-case console/module/script and HTML CLI checks; shared detailed traversal |
+| CLI registration with existing T1–T6 retained, equivalent HTML/Markdown | Existing T1 inventory registration; 60-case console/module/script and HTML CLI checks; shared detailed traversal |
 | Planned actions, exact bytes, fully sent/partial/remaining accounting | `Action`, `ActionDispatch`, `Command.input_actions`; reports and real blocked-reader test, independent of output cap |
 | One original monotonic deadline, no between-key prompt waits, prompt-paced recovery | Shared `_dispatch` loop and original reader deadline; delayed-write deadline test and real recovery recording |
 | Fresh sessions, startup synchronization/fallback, bounded capture/cleanup | Shared `run_session`; keyboard startup/fallback and failure tests plus existing isolation/process-group lifecycle tests |
@@ -146,3 +146,41 @@ synthetic group; finite outer timeouts remain enabled.
 | Full evidence accessible/searchable, preview shortening distinct from truncation | Native HTML disclosures, existing text-content search; raw-view and preview tests, full CLI HTML checks |
 | Stop affected sequence on fault, continue later fresh cases, separate cleanup signals | Timeout, partial-write, startup-exit, normal-exit and crash tests with recovery accounting; later independent fresh cases |
 | No grades, output predicates or replacement evidence; sibling boundaries retained | Scenario stores input/context only; reports preserve actual evidence and label optional usability; no BS/history/signals/job-control scenarios added |
+
+## Optional BS usability observation (#47)
+
+`T1.backspace-bs` runs independently of DEL in a fresh PTY with `TERM=xterm`.
+Its exact ordered plan is type `b"echo hellx"`, key `b"\x08"` once, type
+`b"o"`, then Enter `b"\n"`; after the resulting prompt it sends
+`echo keyboard_alive` plus LF in the same session. The intended line is
+`echo hello`, labeled as planned intent rather than observed input or output.
+No fixtures or student source are required.
+
+Both reports show observed VERASE and its equality to BS without remapping the
+key. Canonical terminal-driver erase can explain deletion when VERASE is BS;
+when VERASE differs, BS may remain in the received line. The harness forces no
+editing mode. This is optional interactive usability with the same assignment
+and cleaned-transcript limitations documented for DEL above.
+
+The shared action/deadline, terminal-snapshot, bounded raw/cleaned evidence,
+cleanup, and report contracts above apply unchanged. `test_keyboard.py` runs
+both variants through exact incoming-byte and supported editing checks,
+unsupported and differing-VERASE modes, startup fallback/exit, timeout/crash/exit
+recovery suppression, early exit between keys, real partial writes, shared
+monotonic deadlines, and safe hostile/raw evidence in both renderers. Canonical
+BS deletion is verified with a synthetic target that sets its own VERASE;
+normal CLI tests also retain the differing default VERASE behavior without
+forcing it. Full workflow checks include both cases among all 60 cases.
+
+### Issue #47 acceptance mapping
+
+| Contract | Implementation and verification |
+| --- | --- |
+| Literal BS once, distinct fresh case, intended line separate from actual output | `T1.backspace-bs` action tuple; exact-byte supported/unsupported and canonical-driver tests |
+| Same-session recovery or undispatched recovery with triggering event | Prompt pacing; timeout/exit/crash, startup exit and between-key exit tests |
+| Observed VERASE equals BS, terminal settings/profile and optional-usability caveats | Shared read-only snapshots, BS equality in both reports, differing-VERASE/canonical fixture tests and case notes |
+| Ordered actions, explicit LF, shared deadline and partial/remaining accounting | Existing shared PTY contract; both-byte deadline tests and real blocked-reader partial dispatch |
+| Raw and cleaned bounded evidence, inert controls/hostile text, capture and preview distinction | Both-byte raw-view tests, same retained prefix, shared report traversal and HTML full-evidence search |
+| Prompt/exit/signal and separate cleanup evidence; later cases continue | Both-byte stopped-recovery tests with fresh later sessions, full workflow fault/lifecycle checks |
+| CLI registration, both report formats, inventories and original T1–T6 retained | 60-case console/module/script Markdown and HTML runs, 27-case T1/T2/T6 inventory tests |
+| No grades, comparisons or replacement output; excluded sibling probes absent | Input-only scenario definition and manual-review notes; no new cursor/history/signal/job-control cases |
