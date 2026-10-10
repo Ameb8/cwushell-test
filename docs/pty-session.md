@@ -347,7 +347,7 @@ these together with the existing PTY lifecycle, CLI, and report checks.
 | Synthetic observation tests without student grading | All fixture tests use `mock_shell.py` or temporary files; assertions check harness recording only |
 | Required repository gates | Focused fixture tests, `task test`, and `task check` |
 
-## Ordered keyboard actions (#46, #47, #48, #49)
+## Ordered keyboard actions (#46, #47, #48, #49, #50)
 
 `Command(text, prompt="cwushell>", actions=())` remains compatible with line
 consumers: without actions, exact UTF-8 text and one LF are sent. With actions,
@@ -387,7 +387,7 @@ CR, backspace and invalid UTF-8 exactly. This view and `output` derive from the
 same bounded raw prefix; no second terminal capture is collected.
 
 
-### History isolation and per-interaction capture (#49)
+### History isolation and per-interaction capture (#49, #50)
 
 `run_session(..., isolated_home=False)` preserves existing launch behavior.
 When enabled, HOME is the fresh session directory, HISTFILE is HOME/.history,

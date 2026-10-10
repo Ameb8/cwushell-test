@@ -417,11 +417,20 @@ def test_exit_during_keys_retains_available_output_and_unsent_actions(
     assert case.session.signal_status is None and case.session.direct_child_reaped
 
 
-HISTORY = next(c for c in PROMPT_CASES if c.case_id == "T1.history-up")
+@pytest.fixture(params=["T1.history-up", "T1.history-navigation"])
+def history_case(request):
+    return next(c for c in PROMPT_CASES if c.case_id == request.param)
 
 
-def test_history_up_exact_bytes_pacing_isolated_home_and_separate_output(
-    monkeypatch, tmp_path
+def history_inputs(history_case):
+    return [
+        b"".join(action.data for action in command.input_actions)
+        for command in history_case.commands
+    ]
+
+
+def test_history_exact_bytes_pacing_isolated_home_and_separate_output(
+    monkeypatch, tmp_path, history_case
 ):
     real_home = tmp_path / "real-home"
     real_home.mkdir()
@@ -430,48 +439,68 @@ def test_history_up_exact_bytes_pacing_isolated_home_and_separate_output(
     monkeypatch.setenv("HISTFILE", str(real_home / ".history"))
     monkeypatch.setenv("BASH_ENV", str(real_home / "startup"))
     dispatch = pty._dispatch
-    setup_seen = False
+    setup_seen = 0
+    navigation_index = len(history_case.commands) - 1
+    dispatch_deadlines = []
+    wait_deadlines = []
     wait = pty._Reader.wait
 
     def observe_wait(reader, prompt, deadline):
         nonlocal setup_seen
         event = wait(reader, prompt, deadline)
+        wait_deadlines.append(deadline)
         if (
             b'LINE "echo history_one"' in reader.evidence.raw_output
             and event == "PROMPT"
         ):
-            setup_seen = True
+            setup_seen += 1
         return event
 
     def observe_dispatch(child, record, deadline):
-        if record.command_index == 2:
-            assert setup_seen  # A returning setup prompt precedes Up, not just text.
+        if record.command_index == navigation_index:
+            dispatch_deadlines.append(deadline)
+            assert (
+                setup_seen == navigation_index - 1
+            )  # A returning setup prompt precedes Up, not just text.
         return dispatch(child, record, deadline)
 
     monkeypatch.setattr(pty._Reader, "wait", observe_wait)
     monkeypatch.setattr(pty, "_dispatch", observe_dispatch)
-    case = HISTORY.run(SHELL, timeout=1)
+    case = history_case.run(SHELL, timeout=1)
     session = case.session
-    assert HISTORY.commands[1].actions == (
-        pty.Action("key", b"\x1b[A"),
+    assert history_case.commands[-2].actions == (
+        *(pty.Action("key", b"\x1b[A"),) * (navigation_index - 1),
+        *((pty.Action("key", b"\x1b[B"),) if navigation_index == 3 else ()),
         pty.Action("enter", b"\n"),
     )
-    assert incoming(case) == [
-        b"echo history_one\n",
-        b"\x1b[A\n",
-        b"echo keyboard_alive\n",
-    ]
-    assert [e.reason for e in session.interactions] == ["PROMPT"] * 4
+    assert incoming(case) == history_inputs(history_case)
+    assert len(dispatch_deadlines) == len(history_case.commands[-2].actions)
+    assert set(dispatch_deadlines) == {wait_deadlines[navigation_index]}
+    assert len(wait_deadlines) == len(history_case.commands) + 1
+    assert [e.reason for e in session.interactions] == ["PROMPT"] * (
+        len(history_case.commands) + 1
+    )
     slices = [
         session.raw_output[e.retained_start : e.retained_end]
         for e in session.interactions
     ]
     assert b"BYTES 6563686f20686973746f72795f6f6e650a" in slices[1]
     assert b"BYTES 1b5b410a" not in slices[1]
-    assert b"BYTES 1b5b410a" in slices[2]
-    assert b'LINE "echo history_one"' in slices[2] and b"history_one\r\n" in slices[2]
-    assert b"\r\x1b[K" in slices[2]
-    assert b"keyboard_alive" not in slices[2]
+    navigation = slices[navigation_index]
+    expected_marker = b"history_two" if navigation_index == 3 else b"history_one"
+    assert b"BYTES " + history_inputs(history_case)[-2].hex().encode() in navigation
+    assert b'LINE "echo ' + expected_marker + b'"' in navigation
+    assert expected_marker + b"\r\n" in navigation
+    assert b"\r\x1b[K" in navigation
+    assert b"keyboard_alive" not in navigation
+    if navigation_index == 3:
+        assert b'LINE "echo history_two"' in slices[2]
+        assert b"BYTES 1b5b411b5b411b5b420a" not in slices[2]
+        assert (
+            b"\r\x1b[Kecho history_two\r\n"
+            b"\r\x1b[Kecho history_one\r\n"
+            b"\r\x1b[Kecho history_two\r\n"
+        ) in navigation
     assert b"".join(slices) == session.raw_output
     assert session.controlled_environment["HOME"] == session.working_directory
     assert (
@@ -482,14 +511,18 @@ def test_history_up_exact_bytes_pacing_isolated_home_and_separate_output(
     assert (real_home / ".history").read_bytes() == b"private user history\n"
     assert not next(o for o in case.file_observations if o.phase == "before").exists
     created = next(o for o in case.file_observations if o.path == ".synthetic_history")
-    assert (
-        created.phase == "after"
-        and created.contents == b"echo history_one\necho history_one\n"
+    assert created.phase == "after" and created.contents == (
+        b"echo history_one\necho history_two\necho history_two\n"
+        if navigation_index == 3
+        else b"echo history_one\necho history_one\n"
     )
     assert not Path(session.working_directory).exists() and session.direct_child_reaped
     assert session.controlled_environment["TERM"] == "xterm"
     assert dict(session.terminal_observations[1].modes)["ICANON"] is False
-    assert sum(c.case_id == HISTORY.case_id for _, cases in SUITES for c in cases) == 1
+    assert (
+        sum(c.case_id == history_case.case_id for _, cases in SUITES for c in cases)
+        == 1
+    )
     for rendered in (
         render_report(report_for(case)),
         render_html_report(report_for(case)),
@@ -497,6 +530,21 @@ def test_history_up_exact_bytes_pacing_isolated_home_and_separate_output(
         assert "Separate interaction terminal evidence" in rendered
         assert "Interaction raw terminal bytes" in rendered
         assert "CSI A" in rendered and "fresh empty HOME" in rendered
+        if navigation_index == 3:
+            assert "CSI B" in rendered and "echo history_two" in rendered
+            assert (
+                repr(b"\x1b[A\x1b[A\x1b[B\n") in rendered
+                or escape(repr(b"\x1b[A\x1b[A\x1b[B\n")) in rendered
+            )
+        assert "\x1b" not in rendered
+        assert "\\xff" in rendered and "\\x08" in rendered
+    html = render_html_report(report_for(case))
+    assert escape(case.raw_output_escaped) in html
+    assert case.raw_output_escaped in render_report(report_for(case))
+    assert "</code><script>hostile</script>" not in html
+    assert "Preview shortened" in html and "Capture not truncated" in html
+    assert "row.textContent" in html
+    for rendered in (render_report(report_for(case)), html):
         assert ".synthetic_history" in rendered and "Fully sent; 3/3 bytes" in rendered
         assert (
             "optional" in rendered.lower()
@@ -516,22 +564,30 @@ def test_history_up_exact_bytes_pacing_isolated_home_and_separate_output(
     ],
 )
 def test_history_unsupported_faults_fallback_and_fresh_continuation(
-    monkeypatch, mode, reason
+    monkeypatch, mode, reason, history_case
 ):
     monkeypatch.setenv("KEYBOARD_MODE", mode)
-    case = HISTORY.run(SHELL, timeout=1 if mode == "missing" else 0.3)
+    case = history_case.run(SHELL, timeout=1 if mode == "missing" else 0.3)
     assert case.session.reason == reason
     if mode == "startup_exit":
-        assert not incoming(case) and len(case.session.undispatched) == 3
+        assert not incoming(case) and len(case.session.undispatched) == len(
+            history_case.commands
+        )
     else:
-        assert incoming(case)[:2] == [b"echo history_one\n", b"\x1b[A\n"]
-        assert 'LINE "\\u001b[A"' in case.session.output
+        assert (
+            incoming(case)[: len(history_case.commands) - 1]
+            == history_inputs(history_case)[:-1]
+        )
+        assert (
+            "LINE " + json.dumps(history_inputs(history_case)[-2][:-1].decode())
+            in case.session.output
+        )
         if reason != "COMPLETED":
             assert case.session.undispatched == ["echo keyboard_alive"]
             assert all(
                 r.sent_bytes == 0
                 for r in case.session.action_dispatch
-                if r.command_index == 3
+                if r.command_index == len(history_case.commands)
             )
         else:
             assert incoming(case)[-1] == b"echo keyboard_alive\n"
@@ -543,7 +599,7 @@ def test_history_unsupported_faults_fallback_and_fresh_continuation(
         assert case.session.signal_status is None
         assert case.session.cleanup_signal_status == signal.SIGTERM
     monkeypatch.setenv("KEYBOARD_MODE", "edit")
-    later = HISTORY.run(SHELL, timeout=1)
+    later = history_case.run(SHELL, timeout=1)
     assert later.session.reason == "COMPLETED"
     assert later.session.pid != case.session.pid
     assert later.session.working_directory != case.session.working_directory
@@ -556,14 +612,14 @@ def test_history_unsupported_faults_fallback_and_fresh_continuation(
 
 @pytest.mark.parametrize("mode", ["edit", "key_exit"])
 def test_history_dispatch_deadline_or_exit_leaves_enter_and_recovery_unsent(
-    monkeypatch, mode
+    monkeypatch, mode, history_case
 ):
     monkeypatch.setenv("KEYBOARD_MODE", mode)
     dispatch = pty._dispatch
     deadlines = []
 
     def delay_after_up(child, record, deadline):
-        if record.command_index == 2:
+        if record.command_index == len(history_case.commands) - 1:
             deadlines.append(deadline)
         event = dispatch(child, record, deadline)
         if record.action.data == b"\x1b[A":
@@ -575,18 +631,32 @@ def test_history_dispatch_deadline_or_exit_leaves_enter_and_recovery_unsent(
         return event
 
     monkeypatch.setattr(pty, "_dispatch", delay_after_up)
-    case = HISTORY.run(SHELL, timeout=0.3)
+    case = history_case.run(SHELL, timeout=0.3)
     assert case.session.reason == ("TIMEOUT" if mode == "edit" else "EOF")
-    records = [r for r in case.session.action_dispatch if r.command_index >= 2]
-    assert [r.sent_bytes for r in records] == [3, 0, 0, 0]
+    records = [
+        r
+        for r in case.session.action_dispatch
+        if r.command_index >= len(history_case.commands) - 1
+    ]
+    assert [r.sent_bytes for r in records] == [3] + [0] * (
+        len(history_case.commands[-2].actions) + 1
+    )
     assert len(set(deadlines)) == 1
-    assert case.session.undispatched == [c.text for c in HISTORY.commands[1:]]
+    assert case.session.undispatched == [c.text for c in history_case.commands[-2:]]
     assert case.session.interactions[-1].waiting_for == "command dispatch"
     assert case.session.direct_child_reaped
+    for rendered in (
+        render_report(report_for(case)),
+        render_html_report(report_for(case)),
+    ):
+        assert "Fully sent; 3/3 bytes" in rendered
+        assert "Undispatched; 0/1 bytes" in rendered
+        assert "Undispatched; 0/19 bytes" in rendered
+        assert "Sequence stopped" in rendered and "remaining=b" in rendered
 
 
-def test_history_bounded_raw_views_and_interaction_ranges():
-    case = HISTORY.run(SHELL, timeout=1, max_output_bytes=140)
+def test_history_bounded_raw_views_and_interaction_ranges(history_case):
+    case = history_case.run(SHELL, timeout=1, max_output_bytes=140)
     assert case.session.reason == "COMPLETED" and case.session.truncated
     assert len(case.session.raw_output) == 140
     assert all(

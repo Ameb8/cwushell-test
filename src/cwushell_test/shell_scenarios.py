@@ -204,6 +204,38 @@ PROMPT_CASES = (
             "for manual review without grading.",
         ),
     ),
+    ShellScenario(
+        "T1.history-navigation",
+        "T1",
+        "Optional interactive usability: multi-entry history using Up and Down",
+        (
+            Command("echo history_one"),
+            Command("echo history_two"),
+            Command(
+                "Navigate history: Up twice, Down once, Enter",
+                actions=(
+                    Action("key", b"\x1b[A"),
+                    Action("key", b"\x1b[A"),
+                    Action("key", b"\x1b[B"),
+                    Action("enter", b"\n"),
+                ),
+            ),
+            Command("echo keyboard_alive"),
+        ),
+        terminal_type="xterm",
+        isolated_home=True,
+        notes=(
+            "Optional interactive-usability observation: assignment.md does not "
+            "explicitly mandate cursor editing/history. Two separately paced setup "
+            "commands precede Up twice, Down once, and Enter. Intended selection: "
+            "echo history_two (planned intent, not observed input or output).",
+            "TERM=xterm is a controlled exception to TERM=dumb. Up uses CSI A "
+            "(ESC [ A); Down uses CSI B (ESC [ B), sent literally without remapping. "
+            "No editing mode is forced; terminal-driver behavior may contribute "
+            "to editing. A cleaned transcript alone cannot establish history "
+            "behavior. Unsupported input is recorded for manual review without grading.",
+        ),
+    ),
 )
 
 TERMINATION_CASES = (

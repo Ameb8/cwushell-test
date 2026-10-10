@@ -34,6 +34,12 @@ def test_exact_inventory_and_wait_targets():
         ["BS backspace editing", "echo keyboard_alive"],
         ["Left twice, Right once, insert l", "echo keyboard_alive"],
         ["echo history_one", "Recall previous command using Up", "echo keyboard_alive"],
+        [
+            "echo history_one",
+            "echo history_two",
+            "Navigate history: Up twice, Down once, Enter",
+            "echo keyboard_alive",
+        ],
     ]
     assert [c.prompt for c in scenarios.PROMPT_CASES[1].commands] == [
         "myprompt>",
@@ -63,7 +69,7 @@ def test_exact_inventory_and_wait_targets():
         ["export CWUSHELL_TEST_EXPORT=fixture_value", "printenv CWUSHELL_TEST_EXPORT"],
         ["unset CWUSHELL_TEST_UNSET", "printenv CWUSHELL_TEST_UNSET"],
     ]
-    assert len({case.case_id for case in ALL_CASES}) == 29
+    assert len({case.case_id for case in ALL_CASES}) == 30
     for suite, cases in (
         ("T1", scenarios.PROMPT_CASES),
         ("T2", scenarios.TERMINATION_CASES),
@@ -201,6 +207,13 @@ def test_all_exact_inputs_independent_sessions_and_report(owned_sessions, monkey
             if case.case_id == "T1.cursor-insertion"
             else ["echo history_one", "\x1b[A", "echo keyboard_alive"]
             if case.case_id == "T1.history-up"
+            else [
+                "echo history_one",
+                "echo history_two",
+                "\x1b[A\x1b[A\x1b[B",
+                "echo keyboard_alive",
+            ]
+            if case.case_id == "T1.history-navigation"
             else session.dispatched
         )
         assert all(row[1] == session.pid for row in received)
@@ -213,10 +226,16 @@ def test_all_exact_inputs_independent_sessions_and_report(owned_sessions, monkey
         else:
             assert session.reason == "COMPLETED"
         assert_released(case, owned_sessions)
-    assert len(owned_sessions) == 29
-    assert len({case.session.pid for case in cases}) == 29
-    assert len({case.session.working_directory for case in cases}) == 29
-    assert [case.session.exit_status for case in cases[12:17]] == [42, 246, 0, 0, 1]
+    assert len(owned_sessions) == 30
+    assert len({case.session.pid for case in cases}) == 30
+    assert len({case.session.working_directory for case in cases}) == 30
+    assert [case.session.exit_status for case in cases if case.suite_id == "T2"] == [
+        42,
+        246,
+        0,
+        0,
+        1,
+    ]
     prompt = cases[1]
     assert [event.waiting_for for event in prompt.session.interactions] == [
         "cwushell>",

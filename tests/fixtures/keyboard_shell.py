@@ -50,13 +50,21 @@ while True:
             break
     edited = bytearray()
     cursor = 0
+    history_index = len(history)
     offset = 0
     data = incoming[:-1]
     while offset < len(data):
         sequence = data[offset : offset + 3]
         value = data[offset]
-        if mode == "edit" and sequence == b"\x1b[A":
-            edited = bytearray(history[-1] if history else b"")
+        if mode == "edit" and sequence in (b"\x1b[A", b"\x1b[B"):
+            history_index = (
+                max(0, history_index - 1)
+                if sequence == b"\x1b[A"
+                else min(len(history), history_index + 1)
+            )
+            edited = bytearray(
+                history[history_index] if history_index < len(history) else b""
+            )
             cursor = len(edited)
             emit(b"\r\x1b[K" + bytes(edited) + b"\n")
             offset += 3
@@ -83,7 +91,7 @@ while True:
         offset += 1
     emit(b"\nBYTES " + bytes(incoming).hex().encode() + b"\n")
     emit(b"LINE " + json.dumps(bytes(edited).decode()).encode() + b"\n")
-    if bytes(edited) == b"echo history_one":
+    if bytes(edited) in (b"echo history_one", b"echo history_two"):
         history.append(bytes(edited))
         with open(
             os.path.join(os.environ["HOME"], ".synthetic_history"), "ab"
@@ -94,7 +102,7 @@ while True:
             + json.dumps([os.environ["HOME"], os.environ.get("HISTFILE")]).encode()
             + b"\n"
         )
-    is_setup = bytes(incoming) == b"echo history_one\n"
+    is_setup = bytes(incoming) in (b"echo history_one\n", b"echo history_two\n")
     if mode == "exit" and not is_setup:
         raise SystemExit(7)
     if mode == "crash" and not is_setup:
