@@ -33,6 +33,7 @@ if mode == "blocked":
     while True:
         time.sleep(1)
 
+history = []
 while True:
     incoming = bytearray()
     while True:
@@ -40,7 +41,7 @@ while True:
         if not value:
             raise SystemExit(0)
         incoming.extend(value)
-        if mode == "key_exit" and value in (b"\x7f", b"\x08", b"D"):
+        if mode == "key_exit" and value in (b"\x7f", b"\x08", b"D", b"A"):
             emit(
                 b"\nBYTES " + bytes(incoming).hex().encode() + b"\nkey exit evidence\n"
             )
@@ -54,6 +55,12 @@ while True:
     while offset < len(data):
         sequence = data[offset : offset + 3]
         value = data[offset]
+        if mode == "edit" and sequence == b"\x1b[A":
+            edited = bytearray(history[-1] if history else b"")
+            cursor = len(edited)
+            emit(b"\r\x1b[K" + bytes(edited) + b"\n")
+            offset += 3
+            continue
         if mode == "edit" and sequence in (b"\x1b[D", b"\x1b[C"):
             cursor = (
                 max(0, cursor - 1)
@@ -76,11 +83,23 @@ while True:
         offset += 1
     emit(b"\nBYTES " + bytes(incoming).hex().encode() + b"\n")
     emit(b"LINE " + json.dumps(bytes(edited).decode()).encode() + b"\n")
-    if mode == "exit":
+    if bytes(edited) == b"echo history_one":
+        history.append(bytes(edited))
+        with open(
+            os.path.join(os.environ["HOME"], ".synthetic_history"), "ab"
+        ) as stream:
+            stream.write(bytes(edited) + b"\n")
+        emit(
+            b"HOME "
+            + json.dumps([os.environ["HOME"], os.environ.get("HISTFILE")]).encode()
+            + b"\n"
+        )
+    is_setup = bytes(incoming) == b"echo history_one\n"
+    if mode == "exit" and not is_setup:
         raise SystemExit(7)
-    if mode == "crash":
+    if mode == "crash" and not is_setup:
         os.kill(os.getpid(), signal.SIGSEGV)
-    if mode == "timeout":
+    if mode == "timeout" and not is_setup:
         emit(b"partial evidence\n")
         while True:
             time.sleep(1)

@@ -153,7 +153,7 @@ Run `task test -- tests/test_html_reporting.py tests/test_cli.py` for evidence
 preservation, hostile text escaping, report order, preview/capture distinctions,
 input whitespace, event filter classification, native disclosure structure,
 format selection, default destinations, explicit paths, and write errors. The
-full synthetic HTML CLI run in `tests/test_runner.py` verifies all 61 cases reach
+full synthetic HTML CLI run in `tests/test_runner.py` verifies all 62 cases reach
 the HTML report. Browser verification should also exercise combined filters,
 search beyond previews and in file/cleanup evidence, review/reload behavior,
 keyboard disclosures, printing, and small-screen scrolling on local files.
@@ -179,7 +179,7 @@ These checks verify harness recording/rendering, not student output. Fixture
 collection, scenario execution, and CLI integration are verified separately by
 their focused tests and the full workflow tests.
 
-## Keyboard evidence and raw terminal view (#46, #47, #48)
+## Keyboard evidence and raw terminal view (#46, #47, #48, #49)
 
 Cases with explicit actions display planned interaction labels, ordered typed
 text/key/Enter actions, exact escaped input bytes including LF, and byte-level
@@ -196,3 +196,13 @@ capture; ANSI, CR, backspace and invalid UTF-8 remain inspectable. Dynamic fence
 and HTML escaping keep this text inert. HTML full-evidence disclosures include
 both views and all action/terminal fields in local search through their text
 content, independently of scan-preview shortening and capture truncation.
+
+
+Action cases also show separate interaction terminal evidence, using retained
+[start, end) offsets into the same bounded raw prefix for startup, setup,
+recall/editing, and recovery. Each slice has cleaned and escaped raw views.
+Offsets remain at the cap after truncation; an empty retained slice does not
+establish that the student emitted nothing. These fields, history isolation
+settings and created HOME file observations appear in both formats and in HTML
+full-evidence search. Full retained output remains accessible independently of
+preview shortening.

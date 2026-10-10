@@ -88,6 +88,8 @@ class Interaction:
     command: str | None
     reason: str
     waiting_for: str
+    retained_start: int | None = None
+    retained_end: int | None = None
 
 
 @dataclass
@@ -387,6 +389,7 @@ def run_session(
     fixtures: Sequence[Fixture] = (),
     controlled_environment: Mapping[str, str | None] | None = None,
     terminal_type: Literal["dumb", "xterm"] = "dumb",
+    isolated_home: bool = False,
 ) -> Evidence:
     """Execute a finite plan in a fresh temporary directory and return evidence.
 
@@ -457,8 +460,33 @@ def run_session(
     with tempfile.TemporaryDirectory(prefix="cwushell-test-") as directory:
         evidence.working_directory = directory
         try:
+            if isolated_home:
+                evidence.controlled_environment.update(
+                    HOME=directory,
+                    HISTFILE=str(Path(directory) / ".history"),
+                    ENV=None,
+                    BASH_ENV=None,
+                    XDG_CONFIG_HOME=str(Path(directory) / ".config"),
+                    XDG_STATE_HOME=str(Path(directory) / ".local-state"),
+                )
+                for name, value in evidence.controlled_environment.items():
+                    if value is None:
+                        env.pop(name, None)
+                    else:
+                        env[name] = value
+                evidence.notes += (
+                    "History setup: fresh empty HOME equals the isolated working "
+                    "directory; no preexisting history or startup files. HISTFILE "
+                    "is controlled as HOME/.history; ENV/BASH_ENV are removed. "
+                    "Post-cleanup HOME file inventory is bounded to 128 entries "
+                    "and depth 8; no symlink directories are followed. File contents "
+                    "use the normal 1 MiB snapshot limit.",
+                )
+                evidence.file_observations = (
+                    session_fixtures.snapshot(Path(directory), ".history", "before"),
+                )
             session_fixtures.prepare(Path(directory), fixture_plan)
-            evidence.file_observations = tuple(
+            evidence.file_observations += tuple(
                 session_fixtures.snapshot(Path(directory), fixture.path, "before")
                 for fixture in fixture_plan
             )
@@ -493,15 +521,24 @@ def run_session(
             event = reader.wait(initial_prompt, deadline)
             if event == "TIMEOUT" and not child.isalive():
                 event = "EOF"
-            evidence.interactions.append(Interaction(None, event, initial_prompt))
+            evidence.interactions.append(
+                Interaction(None, event, initial_prompt, 0, len(evidence.raw_output))
+            )
             evidence.reason = event
             _observe_terminal(child, evidence, "After startup wait")
             if event != "EOF":
                 for command_index, command in enumerate(plan, 1):
+                    retained_start = len(evidence.raw_output)
                     now = time.monotonic()
                     if now >= session_deadline:
                         evidence.interactions.append(
-                            Interaction(command.text, "TIMEOUT", "command dispatch")
+                            Interaction(
+                                command.text,
+                                "TIMEOUT",
+                                "command dispatch",
+                                retained_start,
+                                len(evidence.raw_output),
+                            )
                         )
                         evidence.reason = "TIMEOUT"
                         break
@@ -528,7 +565,13 @@ def run_session(
                             else "TIMEOUT"
                         )
                         evidence.interactions.append(
-                            Interaction(command.text, event, "command dispatch")
+                            Interaction(
+                                command.text,
+                                event,
+                                "command dispatch",
+                                retained_start,
+                                len(evidence.raw_output),
+                            )
                         )
                         evidence.reason = event
                         _observe_terminal(
@@ -541,7 +584,13 @@ def run_session(
                     evidence.undispatched.pop(0)
                     event = reader.wait(command.prompt, deadline)
                     evidence.interactions.append(
-                        Interaction(command.text, event, command.prompt or "EOF")
+                        Interaction(
+                            command.text,
+                            event,
+                            command.prompt or "EOF",
+                            retained_start,
+                            len(evidence.raw_output),
+                        )
                     )
                     evidence.reason = event
                     _observe_terminal(
@@ -584,6 +633,12 @@ def run_session(
                         )
                         for fixture in fixture_plan
                     )
+                if isolated_home:
+                    observations, notes = session_fixtures.snapshot_home(
+                        Path(directory)
+                    )
+                    evidence.file_observations += observations
+                    evidence.notes += notes
                 evidence.file_observations += tuple(
                     session_fixtures.snapshot(Path(directory), fixture.path, "after")
                     for fixture in fixture_plan

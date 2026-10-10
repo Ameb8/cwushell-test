@@ -415,3 +415,229 @@ def test_exit_during_keys_retains_available_output_and_unsent_actions(
     assert case.session.undispatched == [c.text for c in keyboard_case.commands]
     assert case.session.interactions[-1].waiting_for == "command dispatch"
     assert case.session.signal_status is None and case.session.direct_child_reaped
+
+
+HISTORY = next(c for c in PROMPT_CASES if c.case_id == "T1.history-up")
+
+
+def test_history_up_exact_bytes_pacing_isolated_home_and_separate_output(
+    monkeypatch, tmp_path
+):
+    real_home = tmp_path / "real-home"
+    real_home.mkdir()
+    (real_home / ".history").write_bytes(b"private user history\n")
+    monkeypatch.setenv("HOME", str(real_home))
+    monkeypatch.setenv("HISTFILE", str(real_home / ".history"))
+    monkeypatch.setenv("BASH_ENV", str(real_home / "startup"))
+    dispatch = pty._dispatch
+    setup_seen = False
+    wait = pty._Reader.wait
+
+    def observe_wait(reader, prompt, deadline):
+        nonlocal setup_seen
+        event = wait(reader, prompt, deadline)
+        if (
+            b'LINE "echo history_one"' in reader.evidence.raw_output
+            and event == "PROMPT"
+        ):
+            setup_seen = True
+        return event
+
+    def observe_dispatch(child, record, deadline):
+        if record.command_index == 2:
+            assert setup_seen  # A returning setup prompt precedes Up, not just text.
+        return dispatch(child, record, deadline)
+
+    monkeypatch.setattr(pty._Reader, "wait", observe_wait)
+    monkeypatch.setattr(pty, "_dispatch", observe_dispatch)
+    case = HISTORY.run(SHELL, timeout=1)
+    session = case.session
+    assert HISTORY.commands[1].actions == (
+        pty.Action("key", b"\x1b[A"),
+        pty.Action("enter", b"\n"),
+    )
+    assert incoming(case) == [
+        b"echo history_one\n",
+        b"\x1b[A\n",
+        b"echo keyboard_alive\n",
+    ]
+    assert [e.reason for e in session.interactions] == ["PROMPT"] * 4
+    slices = [
+        session.raw_output[e.retained_start : e.retained_end]
+        for e in session.interactions
+    ]
+    assert b"BYTES 6563686f20686973746f72795f6f6e650a" in slices[1]
+    assert b"BYTES 1b5b410a" not in slices[1]
+    assert b"BYTES 1b5b410a" in slices[2]
+    assert b'LINE "echo history_one"' in slices[2] and b"history_one\r\n" in slices[2]
+    assert b"\r\x1b[K" in slices[2]
+    assert b"keyboard_alive" not in slices[2]
+    assert b"".join(slices) == session.raw_output
+    assert session.controlled_environment["HOME"] == session.working_directory
+    assert (
+        session.controlled_environment["HISTFILE"]
+        == session.working_directory + "/.history"
+    )
+    assert session.controlled_environment["BASH_ENV"] is None
+    assert (real_home / ".history").read_bytes() == b"private user history\n"
+    assert not next(o for o in case.file_observations if o.phase == "before").exists
+    created = next(o for o in case.file_observations if o.path == ".synthetic_history")
+    assert (
+        created.phase == "after"
+        and created.contents == b"echo history_one\necho history_one\n"
+    )
+    assert not Path(session.working_directory).exists() and session.direct_child_reaped
+    assert session.controlled_environment["TERM"] == "xterm"
+    assert dict(session.terminal_observations[1].modes)["ICANON"] is False
+    assert sum(c.case_id == HISTORY.case_id for _, cases in SUITES for c in cases) == 1
+    for rendered in (
+        render_report(report_for(case)),
+        render_html_report(report_for(case)),
+    ):
+        assert "Separate interaction terminal evidence" in rendered
+        assert "Interaction raw terminal bytes" in rendered
+        assert "CSI A" in rendered and "fresh empty HOME" in rendered
+        assert ".synthetic_history" in rendered and "Fully sent; 3/3 bytes" in rendered
+        assert (
+            "optional" in rendered.lower()
+            and "Remaining undispatched commands" in rendered
+        )
+
+
+@pytest.mark.parametrize(
+    "mode,reason",
+    [
+        ("unsupported", "COMPLETED"),
+        ("timeout", "TIMEOUT"),
+        ("exit", "EOF"),
+        ("crash", "EOF"),
+        ("startup_exit", "EOF"),
+        ("missing", "COMPLETED"),
+    ],
+)
+def test_history_unsupported_faults_fallback_and_fresh_continuation(
+    monkeypatch, mode, reason
+):
+    monkeypatch.setenv("KEYBOARD_MODE", mode)
+    case = HISTORY.run(SHELL, timeout=1 if mode == "missing" else 0.3)
+    assert case.session.reason == reason
+    if mode == "startup_exit":
+        assert not incoming(case) and len(case.session.undispatched) == 3
+    else:
+        assert incoming(case)[:2] == [b"echo history_one\n", b"\x1b[A\n"]
+        assert 'LINE "\\u001b[A"' in case.session.output
+        if reason != "COMPLETED":
+            assert case.session.undispatched == ["echo keyboard_alive"]
+            assert all(
+                r.sent_bytes == 0
+                for r in case.session.action_dispatch
+                if r.command_index == 3
+            )
+        else:
+            assert incoming(case)[-1] == b"echo keyboard_alive\n"
+    if mode == "exit":
+        assert case.session.exit_status == 7
+    if mode == "crash":
+        assert case.session.signal_status == signal.SIGSEGV
+    if mode == "timeout":
+        assert case.session.signal_status is None
+        assert case.session.cleanup_signal_status == signal.SIGTERM
+    monkeypatch.setenv("KEYBOARD_MODE", "edit")
+    later = HISTORY.run(SHELL, timeout=1)
+    assert later.session.reason == "COMPLETED"
+    assert later.session.pid != case.session.pid
+    assert later.session.working_directory != case.session.working_directory
+    for rendered in (
+        render_report(report_for(case)),
+        render_html_report(report_for(case)),
+    ):
+        assert reason in rendered and "Action dispatch accounting" in rendered
+
+
+@pytest.mark.parametrize("mode", ["edit", "key_exit"])
+def test_history_dispatch_deadline_or_exit_leaves_enter_and_recovery_unsent(
+    monkeypatch, mode
+):
+    monkeypatch.setenv("KEYBOARD_MODE", mode)
+    dispatch = pty._dispatch
+    deadlines = []
+
+    def delay_after_up(child, record, deadline):
+        if record.command_index == 2:
+            deadlines.append(deadline)
+        event = dispatch(child, record, deadline)
+        if record.action.data == b"\x1b[A":
+            if mode == "edit":
+                time.sleep(max(0, deadline - time.monotonic()) + 0.01)
+            else:
+                while child.isalive() and time.monotonic() < deadline:
+                    time.sleep(0.001)
+        return event
+
+    monkeypatch.setattr(pty, "_dispatch", delay_after_up)
+    case = HISTORY.run(SHELL, timeout=0.3)
+    assert case.session.reason == ("TIMEOUT" if mode == "edit" else "EOF")
+    records = [r for r in case.session.action_dispatch if r.command_index >= 2]
+    assert [r.sent_bytes for r in records] == [3, 0, 0, 0]
+    assert len(set(deadlines)) == 1
+    assert case.session.undispatched == [c.text for c in HISTORY.commands[1:]]
+    assert case.session.interactions[-1].waiting_for == "command dispatch"
+    assert case.session.direct_child_reaped
+
+
+def test_history_bounded_raw_views_and_interaction_ranges():
+    case = HISTORY.run(SHELL, timeout=1, max_output_bytes=140)
+    assert case.session.reason == "COMPLETED" and case.session.truncated
+    assert len(case.session.raw_output) == 140
+    assert all(
+        e.retained_start is not None
+        and e.retained_end is not None
+        and 0 <= e.retained_start <= e.retained_end <= 140
+        for e in case.session.interactions
+    )
+    assert (
+        case.session.interactions[-1].retained_start
+        == case.session.interactions[-1].retained_end
+        == 140
+    )
+    for rendered in (
+        render_report(report_for(case)),
+        render_html_report(report_for(case)),
+    ):
+        assert "empty slices after truncation" in rendered
+        assert "TRUNCATED" in rendered and "Retained raw-byte count: 140" in rendered
+        assert "\x1b" not in rendered
+        assert (
+            "</code><script>hostile</script>" not in rendered
+            or rendered == render_report(report_for(case))
+        )
+
+
+def test_home_inventory_is_bounded_and_does_not_follow_links(tmp_path):
+    from cwushell_test.fixtures import snapshot_home
+
+    home = tmp_path / "home"
+    home.mkdir()
+    outside = tmp_path / "private"
+    outside.mkdir()
+    (outside / "history").write_bytes(b"private history")
+    (home / "linked").symlink_to(outside, target_is_directory=True)
+    (home / "fifo").parent.mkdir(exist_ok=True)
+    os.mkfifo(home / "fifo")
+    nested = home / ".config"
+    nested.mkdir()
+    (nested / "custom-history").write_bytes(b"owned history\n")
+    observations, notes = snapshot_home(home)
+    assert (
+        next(o for o in observations if o.path == ".config/custom-history").contents
+        == b"owned history\n"
+    )
+    assert not any(o.contents == b"private history" for o in observations)
+    assert next(o for o in observations if o.path == "linked").error
+    assert next(o for o in observations if o.path == "fifo").error
+    assert not notes
+    for index in range(140):
+        (home / f"entry{index}").touch()
+    observations, notes = snapshot_home(home)
+    assert len(observations) <= 129  # 128 discovered entries plus explicit .history.
+    assert "HOME inventory truncated at 128 entries" in notes

@@ -5,6 +5,7 @@ from pathlib import Path
 from typing import Protocol
 
 from cwushell_test.evidence import CaseEvidence, Report
+from cwushell_test.pty_session import clean_output
 
 
 def _cell(value: str) -> str:
@@ -214,6 +215,26 @@ def _case(
         "backspace and invalid UTF-8; no terminal controls execute here.\n\n"
     )
     result += _block(case.raw_output_escaped) + "\n"
+    if case.has_action_plan:
+        result += renderer.section("Separate interaction terminal evidence")
+        result += renderer.text(
+            "Slices of the same bounded raw capture, including returning prompts. "
+            "Offsets stop advancing at the capture cap; empty slices after truncation "
+            "do not establish absent output. Cleaned slices do not reconstruct redraws.\n\n"
+        )
+        for event_index, event in enumerate(session.interactions):
+            if event.retained_start is None or event.retained_end is None:
+                continue
+            result += _field(
+                "Interaction", "Startup" if event_index == 0 else event.command
+            )
+            result += _field(
+                "Retained byte range [start, end)",
+                (event.retained_start, event.retained_end),
+            )
+            raw = session.raw_output[event.retained_start : event.retained_end]
+            result += _field("Interaction cleaned terminal output", clean_output(raw))
+            result += _field("Interaction raw terminal bytes", repr(raw))
     result += renderer.section("Capture notes")
     result += renderer.text(
         "TRUNCATED: retained raw terminal-output prefix only.\n\n"

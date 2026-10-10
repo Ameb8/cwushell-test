@@ -35,6 +35,7 @@ class ShellScenario:
     controlled_environment: Mapping[str, str | None] = field(default_factory=dict)
     notes: tuple[str, ...] = ()
     terminal_type: Literal["dumb", "xterm"] = "dumb"
+    isolated_home: bool = False
 
     def run(
         self,
@@ -52,6 +53,7 @@ class ShellScenario:
             fixtures=self.fixtures,
             controlled_environment=self.controlled_environment,
             terminal_type=self.terminal_type,
+            isolated_home=self.isolated_home,
         )
         return CaseEvidence(
             self.case_id,
@@ -175,6 +177,31 @@ PROMPT_CASES = (
             "alone cannot establish editing behavior. Inspect escaped raw cursor "
             "and redraw bytes alongside actual output. Unsupported input, including "
             "escape bytes treated as ordinary input, is recorded without grading.",
+        ),
+    ),
+    ShellScenario(
+        "T1.history-up",
+        "T1",
+        "Optional interactive usability: previous-command recall using Up",
+        (
+            Command("echo history_one"),
+            Command(
+                "Recall previous command using Up",
+                actions=(Action("key", b"\x1b[A"), Action("enter", b"\n")),
+            ),
+            Command("echo keyboard_alive"),
+        ),
+        terminal_type="xterm",
+        isolated_home=True,
+        notes=(
+            "Optional interactive-usability observation: assignment.md does not "
+            "explicitly mandate cursor editing/history. Up recalls the previous "
+            "command as planned intent; no recalled command is substituted for input.",
+            "TERM=xterm is a controlled exception to TERM=dumb. Up uses CSI A "
+            "(ESC [ A), sent literally without remapping. No editing mode is forced; "
+            "terminal-driver behavior may contribute to editing. A cleaned transcript "
+            "alone cannot establish history behavior. Unsupported input is recorded "
+            "for manual review without grading.",
         ),
     ),
 )

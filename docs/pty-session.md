@@ -347,7 +347,7 @@ these together with the existing PTY lifecycle, CLI, and report checks.
 | Synthetic observation tests without student grading | All fixture tests use `mock_shell.py` or temporary files; assertions check harness recording only |
 | Required repository gates | Focused fixture tests, `task test`, and `task check` |
 
-## Ordered keyboard actions (#46, #47, #48)
+## Ordered keyboard actions (#46, #47, #48, #49)
 
 `Command(text, prompt="cwushell>", actions=())` remains compatible with line
 consumers: without actions, exact UTF-8 text and one LF are sent. With actions,
@@ -385,3 +385,25 @@ is recorded in `controlled_environment`.
 Reports expose `raw_output` as inert ASCII bytes-literal text, retaining ANSI,
 CR, backspace and invalid UTF-8 exactly. This view and `output` derive from the
 same bounded raw prefix; no second terminal capture is collected.
+
+
+### History isolation and per-interaction capture (#49)
+
+`run_session(..., isolated_home=False)` preserves existing launch behavior.
+When enabled, HOME is the fresh session directory, HISTFILE is HOME/.history,
+XDG_CONFIG_HOME and XDG_STATE_HOME point inside HOME, and ENV/BASH_ENV are removed.
+These values and the empty-history setup are recorded. After bounded cleanup,
+`snapshot_home` inventories at most 128 created entries to depth 8 through owned
+directory descriptors, without following symlink directories; each regular file
+uses the existing 1 MiB contents limit. Diagnostics identify unavailable or
+limited collection. An explicit absent .history snapshot is also recorded when
+no such file exists. No filename convention is required for created history files.
+
+`Interaction.retained_start` and `retained_end` are optional backward-compatible
+byte offsets into Evidence.raw_output, recorded for startup and dispatched or
+stopped interactions. They partition the retained prefix, including dispatch
+and wait output, with no second capture. After the cap they may describe empty
+ranges; this does not imply absent output. Both formats expose cleaned and raw
+slices separately for action cases, so setup output cannot be confused with
+recall output. Cleaned slices are presentation only; prompt matching still uses
+the original bounded streaming cleaner. Cleanup output is not a new transcript.
