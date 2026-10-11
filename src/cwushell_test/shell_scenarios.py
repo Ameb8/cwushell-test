@@ -2,7 +2,7 @@
 
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Mapping
+from typing import Literal, Mapping
 
 from cwushell_test.evidence import CaseEvidence
 from cwushell_test.fixtures import (
@@ -13,7 +13,7 @@ from cwushell_test.fixtures import (
     UNSET_ENVIRONMENT,
     Fixture,
 )
-from cwushell_test.pty_session import Command, run_session
+from cwushell_test.pty_session import Action, Command, run_session
 
 BUILTIN_COVERAGE_NOTE = (
     "These are representative internal-command observations; coverage does not "
@@ -34,6 +34,8 @@ class ShellScenario:
     fixtures: tuple[Fixture, ...] = ()
     controlled_environment: Mapping[str, str | None] = field(default_factory=dict)
     notes: tuple[str, ...] = ()
+    terminal_type: Literal["dumb", "xterm"] = "dumb"
+    isolated_home: bool = False
 
     def run(
         self,
@@ -50,6 +52,8 @@ class ShellScenario:
             max_output_bytes=max_output_bytes,
             fixtures=self.fixtures,
             controlled_environment=self.controlled_environment,
+            terminal_type=self.terminal_type,
+            isolated_home=self.isolated_home,
         )
         return CaseEvidence(
             self.case_id,
@@ -81,6 +85,198 @@ PROMPT_CASES = (
     _case("T1", "tabs.memory", "meminfo\t-t\t-u", title="Tab-separated memory input"),
     _case("T1", "spaces.echo", "echo   alpha   beta"),
     _case("T1", "tabs.echo", "echo\talpha\tbeta", title="Tab-separated echo input"),
+    ShellScenario(
+        "T1.backspace-del",
+        "T1",
+        "Optional interactive usability: trailing-character deletion using DEL",
+        (
+            Command(
+                "DEL backspace editing",
+                actions=(
+                    Action("type", b"echo hellx"),
+                    Action("key", b"\x7f"),
+                    Action("type", b"o"),
+                    Action("enter", b"\n"),
+                ),
+            ),
+            Command("echo keyboard_alive"),
+        ),
+        terminal_type="xterm",
+        notes=(
+            "Optional interactive-usability observation: assignment.md does not "
+            "explicitly mandate cursor editing/history. Intended resulting line: "
+            "echo hello (planned intent, not observed input or output).",
+            "Canonical terminal-driver erase behavior may account for deletion; "
+            "success alone does not establish a student-implemented line editor. "
+            "A cleaned transcript alone cannot establish editing behavior. "
+            "Unsupported input is recorded for manual review without grading.",
+            "TERM=xterm is a controlled exception to TERM=dumb, compatible with "
+            "xterm key sequences. DEL is sent literally with no VERASE remapping. "
+            "No editing mode is forced; only normal launch echo suppression is used.",
+        ),
+    ),
+    ShellScenario(
+        "T1.backspace-bs",
+        "T1",
+        "Optional interactive usability: trailing-character deletion using BS",
+        (
+            Command(
+                "BS backspace editing",
+                actions=(
+                    Action("type", b"echo hellx"),
+                    Action("key", b"\x08"),
+                    Action("type", b"o"),
+                    Action("enter", b"\n"),
+                ),
+            ),
+            Command("echo keyboard_alive"),
+        ),
+        terminal_type="xterm",
+        notes=(
+            "Optional interactive-usability observation: assignment.md does not "
+            "explicitly mandate cursor editing/history. Intended resulting line: "
+            "echo hello (planned intent, not observed input or output).",
+            "Canonical terminal-driver erase behavior may account for deletion; "
+            "success alone does not establish a student-implemented line editor. "
+            "A cleaned transcript alone cannot establish editing behavior. "
+            "Unsupported input is recorded for manual review without grading.",
+            "TERM=xterm is a controlled exception to TERM=dumb, compatible with "
+            "xterm key sequences. BS is sent literally with no VERASE remapping. "
+            "No editing mode is forced; only normal launch echo suppression is used.",
+        ),
+    ),
+    ShellScenario(
+        "T1.cursor-insertion",
+        "T1",
+        "Optional interactive usability: left/right cursor movement and insertion",
+        (
+            Command(
+                "Left twice, Right once, insert l",
+                actions=(
+                    Action("type", b"echo helo"),
+                    Action("key", b"\x1b[D"),
+                    Action("key", b"\x1b[D"),
+                    Action("key", b"\x1b[C"),
+                    Action("type", b"l"),
+                    Action("enter", b"\n"),
+                ),
+            ),
+            Command("echo keyboard_alive"),
+        ),
+        terminal_type="xterm",
+        notes=(
+            "Optional interactive-usability observation: assignment.md does not "
+            "explicitly mandate cursor editing/history. Intended resulting line: "
+            "echo hello (planned intent, not observed input or output). Left twice, "
+            "Right once, then insert l before the final o.",
+            "TERM=xterm is a controlled exception to TERM=dumb. Left uses CSI D "
+            "(ESC [ D); Right uses CSI C (ESC [ C), sent literally without remapping. "
+            "No editing mode is forced; only normal launch echo suppression is used. "
+            "Terminal-driver behavior may contribute to editing.",
+            "The cleaned transcript does not reconstruct the visual screen and "
+            "alone cannot establish editing behavior. Inspect escaped raw cursor "
+            "and redraw bytes alongside actual output. Unsupported input, including "
+            "escape bytes treated as ordinary input, is recorded without grading.",
+        ),
+    ),
+    ShellScenario(
+        "T1.history-up",
+        "T1",
+        "Optional interactive usability: previous-command recall using Up",
+        (
+            Command("echo history_one"),
+            Command(
+                "Recall previous command using Up",
+                actions=(Action("key", b"\x1b[A"), Action("enter", b"\n")),
+            ),
+            Command("echo keyboard_alive"),
+        ),
+        terminal_type="xterm",
+        isolated_home=True,
+        notes=(
+            "Optional interactive-usability observation: assignment.md does not "
+            "explicitly mandate cursor editing/history. Up recalls the previous "
+            "command as planned intent; no recalled command is substituted for input.",
+            "TERM=xterm is a controlled exception to TERM=dumb. Up uses CSI A "
+            "(ESC [ A), sent literally without remapping. No editing mode is forced; "
+            "terminal-driver behavior may contribute to editing. A cleaned transcript "
+            "alone cannot establish history behavior. Unsupported input is recorded "
+            "for manual review without grading.",
+        ),
+    ),
+    ShellScenario(
+        "T1.history-navigation",
+        "T1",
+        "Optional interactive usability: multi-entry history using Up and Down",
+        (
+            Command("echo history_one"),
+            Command("echo history_two"),
+            Command(
+                "Navigate history: Up twice, Down once, Enter",
+                actions=(
+                    Action("key", b"\x1b[A"),
+                    Action("key", b"\x1b[A"),
+                    Action("key", b"\x1b[B"),
+                    Action("enter", b"\n"),
+                ),
+            ),
+            Command("echo keyboard_alive"),
+        ),
+        terminal_type="xterm",
+        isolated_home=True,
+        notes=(
+            "Optional interactive-usability observation: assignment.md does not "
+            "explicitly mandate cursor editing/history. Two separately paced setup "
+            "commands precede Up twice, Down once, and Enter. Intended selection: "
+            "echo history_two (planned intent, not observed input or output).",
+            "TERM=xterm is a controlled exception to TERM=dumb. Up uses CSI A "
+            "(ESC [ A); Down uses CSI B (ESC [ B), sent literally without remapping. "
+            "No editing mode is forced; terminal-driver behavior may contribute "
+            "to editing. A cleaned transcript alone cannot establish history "
+            "behavior. Unsupported input is recorded for manual review without grading.",
+        ),
+    ),
+    ShellScenario(
+        "T1.history-editing",
+        "T1",
+        "Optional interactive usability: cursor and DEL editing of recalled history",
+        (
+            Command("echo history_one"),
+            Command(
+                "Edit recalled history: Up, Left, Right, DEL three times, type two, Enter",
+                actions=(
+                    Action("key", b"\x1b[A"),
+                    Action("key", b"\x1b[D"),
+                    Action("key", b"\x1b[C"),
+                    Action("key", b"\x7f"),
+                    Action("key", b"\x7f"),
+                    Action("key", b"\x7f"),
+                    Action("type", b"two"),
+                    Action("enter", b"\n"),
+                ),
+            ),
+            Command("echo keyboard_alive"),
+        ),
+        terminal_type="xterm",
+        isolated_home=True,
+        notes=(
+            "Optional interactive-usability observation: assignment.md does not "
+            "explicitly mandate cursor editing/history. Intended resulting line: "
+            "echo history_two (planned intent, not observed input or output). "
+            "Recall history_one, move Left then Right to return to the end, "
+            "delete the suffix one with three DEL keys, then type two.",
+            "TERM=xterm is a controlled exception to TERM=dumb. Up uses CSI A "
+            "(ESC [ A); Left uses CSI D (ESC [ D); Right uses CSI C (ESC [ C). "
+            "DEL (\\x7f) is sent literally with no VERASE remapping. "
+            "No editing mode is forced; only normal launch echo suppression is used. "
+            "Terminal-driver behavior may contribute to editing; a mismatched "
+            "erase setting remains visible in the read-only terminal snapshots.",
+            "A cleaned transcript alone cannot establish editing behavior or "
+            "reconstruct cursor/erase/redraws. Inspect retained raw bytes alongside "
+            "actual output. Unsupported input is recorded for manual review "
+            "without grading; no edited command replaces the keystroke input.",
+        ),
+    ),
 )
 
 TERMINATION_CASES = (

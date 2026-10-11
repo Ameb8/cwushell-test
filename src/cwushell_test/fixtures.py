@@ -121,3 +121,63 @@ def snapshot(
             exists,
             error=f"Unable to observe {destination}: {exc}; check file type and permissions",
         )
+
+
+def snapshot_home(
+    directory: Path,
+) -> tuple[tuple[FileObservation, ...], tuple[str, ...]]:
+    """Bounded HOME inventory through owned directory FDs, never following links."""
+    observations: list[FileObservation] = []
+    notes: list[str] = []
+
+    def visit(descriptor: int, prefix: str, depth: int) -> None:
+        with os.scandir(descriptor) as entries:
+            for entry in entries:
+                if len(observations) >= 128:
+                    notes.append("HOME inventory truncated at 128 entries")
+                    return
+                path = prefix + entry.name
+                # /proc/self/fd anchors reads to the already opened parent,
+                # avoiding target-controlled ancestor symlinks.
+                anchored = Path(f"/proc/self/fd/{descriptor}")
+                observation = snapshot(anchored, entry.name, "after")
+                observations.append(
+                    FileObservation(
+                        path,
+                        "after",
+                        observation.exists,
+                        observation.contents,
+                        observation.error,
+                    )
+                )
+                if entry.is_dir(follow_symlinks=False):
+                    if depth >= 8:
+                        notes.append(f"HOME inventory depth limit reached: {path!r}")
+                        continue
+                    try:
+                        child = os.open(
+                            entry.name,
+                            os.O_RDONLY
+                            | os.O_DIRECTORY
+                            | os.O_NOFOLLOW
+                            | os.O_NONBLOCK,
+                            dir_fd=descriptor,
+                        )
+                        try:
+                            visit(child, path + "/", depth + 1)
+                        finally:
+                            os.close(child)
+                    except OSError as exc:
+                        notes.append(f"HOME inventory unavailable for {path!r}: {exc}")
+
+    try:
+        descriptor = os.open(directory, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+        try:
+            visit(descriptor, "", 1)
+        finally:
+            os.close(descriptor)
+    except OSError as exc:
+        notes.append(f"HOME inventory unavailable: {exc}")
+    if not any(o.path == ".history" for o in observations):
+        observations.append(snapshot(directory, ".history", "after"))
+    return tuple(observations), tuple(dict.fromkeys(notes))

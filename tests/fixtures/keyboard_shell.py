@@ -1,0 +1,117 @@
+#!/usr/bin/env python3
+"""Byte-oriented synthetic keyboard behaviors without readline or student code."""
+
+import json
+import os
+import signal
+import termios
+import time
+
+mode = os.environ.get("KEYBOARD_MODE", "edit")
+settings = termios.tcgetattr(0)
+if mode in ("verase-bs", "canonical-bs"):
+    settings[6][termios.VERASE] = b"\x08"
+elif mode == "verase-del":
+    settings[6][termios.VERASE] = b"\x7f"
+elif mode not in ("canonical", "canonical-bs"):
+    settings[3] &= ~(termios.ICANON | termios.ECHO)
+    settings[6][termios.VMIN] = 1
+    settings[6][termios.VTIME] = 0
+termios.tcsetattr(0, termios.TCSANOW, settings)
+
+
+def emit(data):
+    os.write(1, data)
+
+
+if mode == "startup_exit":
+    emit(b"startup evidence\n")
+    raise SystemExit(19)
+if mode != "missing":
+    emit(b"cwushell>")
+if mode == "blocked":
+    while True:
+        time.sleep(1)
+
+history = []
+while True:
+    incoming = bytearray()
+    while True:
+        value = os.read(0, 1)
+        if not value:
+            raise SystemExit(0)
+        incoming.extend(value)
+        if mode == "key_exit" and value in (b"\x7f", b"\x08", b"D", b"A"):
+            emit(
+                b"\nBYTES " + bytes(incoming).hex().encode() + b"\nkey exit evidence\n"
+            )
+            raise SystemExit(7)
+        if value == b"\n":
+            break
+    edited = bytearray()
+    cursor = 0
+    history_index = len(history)
+    offset = 0
+    data = incoming[:-1]
+    while offset < len(data):
+        sequence = data[offset : offset + 3]
+        value = data[offset]
+        if mode == "edit" and sequence in (b"\x1b[A", b"\x1b[B"):
+            history_index = (
+                max(0, history_index - 1)
+                if sequence == b"\x1b[A"
+                else min(len(history), history_index + 1)
+            )
+            edited = bytearray(
+                history[history_index] if history_index < len(history) else b""
+            )
+            cursor = len(edited)
+            emit(b"\r\x1b[K" + bytes(edited) + b"\n")
+            offset += 3
+            continue
+        if mode == "edit" and sequence in (b"\x1b[D", b"\x1b[C"):
+            cursor = (
+                max(0, cursor - 1)
+                if sequence == b"\x1b[D"
+                else min(len(edited), cursor + 1)
+            )
+            emit(sequence)
+            offset += 3
+            continue
+        if mode == "edit" and value in (127, 8):
+            if cursor:
+                cursor -= 1
+                del edited[cursor]
+            emit(b"\x08 \x08")
+        else:
+            edited[cursor:cursor] = bytes([value])
+            cursor += 1
+            if mode == "edit" and cursor < len(edited):
+                emit(bytes(edited[cursor - 1 :]) + b"\x1b[D")
+        offset += 1
+    emit(b"\nBYTES " + bytes(incoming).hex().encode() + b"\n")
+    emit(b"LINE " + json.dumps(bytes(edited).decode()).encode() + b"\n")
+    if bytes(edited) in (b"echo history_one", b"echo history_two"):
+        history.append(bytes(edited))
+        with open(
+            os.path.join(os.environ["HOME"], ".synthetic_history"), "ab"
+        ) as stream:
+            stream.write(bytes(edited) + b"\n")
+        emit(
+            b"HOME "
+            + json.dumps([os.environ["HOME"], os.environ.get("HISTFILE")]).encode()
+            + b"\n"
+        )
+    is_setup = bytes(incoming) in (b"echo history_one\n", b"echo history_two\n")
+    if mode == "exit" and not is_setup:
+        raise SystemExit(7)
+    if mode == "crash" and not is_setup:
+        os.kill(os.getpid(), signal.SIGSEGV)
+    if mode == "timeout" and not is_setup:
+        emit(b"partial evidence\n")
+        while True:
+            time.sleep(1)
+    if bytes(edited).startswith(b"echo "):
+        emit(bytes(edited)[5:] + b"\n")
+    emit(b"\x1b[31mRAW\x1b[0m\r\x08\xff </code><script>hostile</script> ```\n")
+    emit(b"cwushell>")

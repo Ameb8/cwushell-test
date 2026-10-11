@@ -346,3 +346,64 @@ these together with the existing PTY lifecycle, CLI, and report checks.
 | Separate harness observations and retained session/fixture settings | New helper context fields, automatic `CaseEvidence` adaptation, existing report renderer; fixture contract and report tests |
 | Synthetic observation tests without student grading | All fixture tests use `mock_shell.py` or temporary files; assertions check harness recording only |
 | Required repository gates | Focused fixture tests, `task test`, and `task check` |
+
+## Ordered keyboard actions (#46, #47, #48, #49, #50, #51)
+
+`Command(text, prompt="cwushell>", actions=())` remains compatible with line
+consumers: without actions, exact UTF-8 text and one LF are sent. With actions,
+`text` is a planned interaction label, not an observed edited command. Each
+`Action(kind, data)` sends literal bytes; kinds are `type`, `key`, and `enter`.
+An action plan ends with exactly one `Action("enter", b"\n")`; earlier actions
+cannot contain LF or CR. No implicit LF is appended to actions. One original
+monotonic command deadline covers all action writes and the resulting prompt/EOF
+wait, without prompt waits between keystrokes. Recovery is a separate paced
+command in the same session. Startup synchronization/fallback, total interaction
+allowance, bounded capture and process-group cleanup retain their existing rules.
+
+`Evidence.action_dispatch` contains ordered `ActionDispatch` records identifying
+the one-based command/action indexes, original action, and exact `sent_bytes`.
+Fully sent, partially sent and remaining bytes are recorded independently of
+capture truncation. The compatibility `dispatched`/`undispatched` lists contain
+interaction labels for action plans; incomplete interactions remain undispatched.
+On dispatch timeout or observed terminal/process closure, the sequence stops and
+retains recovery input and its triggering event. A stopped dispatch performs one
+nonblocking read of at most 4096 bytes to retain already available diagnostics,
+without a new wait or transcript. Later independent cases continue.
+
+`terminal_type="xterm"` is the documented keyboard-case exception to the
+`TERM=dumb` default. Both profiles retain 24×80 dimensions, C locale, normal
+launch echo suppression, and inherited editing/erase settings. No editing mode
+or VERASE is forced or remapped. `terminal_profile` records this context;
+`terminal_observations` reads termios from the owned master after echo suppression,
+after startup, and after each completed/stopped interaction. Observations contain
+numeric iflag/oflag/cflag/lflag, ICANON/ECHO and relevant input/output/local flags,
+VERASE bytes, or a diagnostic when unavailable. These are bounded read-only
+snapshots, not continuous monitoring: target changes between snapshots and
+student-side environment changes cannot be inferred. The controlled launch TERM
+is recorded in `controlled_environment`.
+
+Reports expose `raw_output` as inert ASCII bytes-literal text, retaining ANSI,
+CR, backspace and invalid UTF-8 exactly. This view and `output` derive from the
+same bounded raw prefix; no second terminal capture is collected.
+
+
+### History isolation and per-interaction capture (#49, #50, #51)
+
+`run_session(..., isolated_home=False)` preserves existing launch behavior.
+When enabled, HOME is the fresh session directory, HISTFILE is HOME/.history,
+XDG_CONFIG_HOME and XDG_STATE_HOME point inside HOME, and ENV/BASH_ENV are removed.
+These values and the empty-history setup are recorded. After bounded cleanup,
+`snapshot_home` inventories at most 128 created entries to depth 8 through owned
+directory descriptors, without following symlink directories; each regular file
+uses the existing 1 MiB contents limit. Diagnostics identify unavailable or
+limited collection. An explicit absent .history snapshot is also recorded when
+no such file exists. No filename convention is required for created history files.
+
+`Interaction.retained_start` and `retained_end` are optional backward-compatible
+byte offsets into Evidence.raw_output, recorded for startup and dispatched or
+stopped interactions. They partition the retained prefix, including dispatch
+and wait output, with no second capture. After the cap they may describe empty
+ranges; this does not imply absent output. Both formats expose cleaned and raw
+slices separately for action cases, so setup output cannot be confused with
+recall output. Cleaned slices are presentation only; prompt matching still uses
+the original bounded streaming cleaner. Cleanup output is not a new transcript.

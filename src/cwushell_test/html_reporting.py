@@ -229,6 +229,8 @@ def _scan_case(case: CaseEvidence, index: int) -> str:
         if session.dispatched
         else '<p class="note">No inputs fully dispatched.</p>'
     )
+    if case.has_action_plan:
+        result += '<p class="note">Interaction labels; exact action bytes and dispatch counts in full evidence.</p>'
     if session.undispatched:
         result += (
             '<p class="capture">Undispatched (may include a partially sent line):</p>'
@@ -310,7 +312,7 @@ def render_html_report(report: Report) -> str:
     result += (
         '</div></details><p class="note">Inputs use an escaped representation: '
         r"actual tabs appear as <code>\t</code>, literal backslashes as <code>\\</code>. "
-        "Spaces are preserved. The helper appends one LF to fully dispatched inputs. "
+        "Spaces are preserved. Line commands append one LF; action plans use explicit Enter. "
         "Terminal output is combined stdout + stderr evidence.</p>"
         '<p class="note">Reviewed means inspected by the reviewer; it assigns no '
         "correctness status or grade. Review progress resets on reload.</p>"

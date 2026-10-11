@@ -30,6 +30,21 @@ def test_exact_inventory_and_wait_targets():
         ["meminfo\t-t\t-u"],
         ["echo   alpha   beta"],
         ["echo\talpha\tbeta"],
+        ["DEL backspace editing", "echo keyboard_alive"],
+        ["BS backspace editing", "echo keyboard_alive"],
+        ["Left twice, Right once, insert l", "echo keyboard_alive"],
+        ["echo history_one", "Recall previous command using Up", "echo keyboard_alive"],
+        [
+            "echo history_one",
+            "echo history_two",
+            "Navigate history: Up twice, Down once, Enter",
+            "echo keyboard_alive",
+        ],
+        [
+            "echo history_one",
+            "Edit recalled history: Up, Left, Right, DEL three times, type two, Enter",
+            "echo keyboard_alive",
+        ],
     ]
     assert [c.prompt for c in scenarios.PROMPT_CASES[1].commands] == [
         "myprompt>",
@@ -59,7 +74,7 @@ def test_exact_inventory_and_wait_targets():
         ["export CWUSHELL_TEST_EXPORT=fixture_value", "printenv CWUSHELL_TEST_EXPORT"],
         ["unset CWUSHELL_TEST_UNSET", "printenv CWUSHELL_TEST_UNSET"],
     ]
-    assert len({case.case_id for case in ALL_CASES}) == 25
+    assert len({case.case_id for case in ALL_CASES}) == 31
     for suite, cases in (
         ("T1", scenarios.PROMPT_CASES),
         ("T2", scenarios.TERMINATION_CASES),
@@ -102,6 +117,8 @@ def test_adapter_preserves_evidence_and_context(monkeypatch):
                 "max_output_bytes": 17,
                 "fixtures": fixtures.CD_FIXTURES,
                 "controlled_environment": {},
+                "terminal_type": "dumb",
+                "isolated_home": False,
             },
         )
     ]
@@ -186,7 +203,26 @@ def test_all_exact_inputs_independent_sessions_and_report(owned_sessions, monkey
             fixture.path for fixture in definition.fixtures if fixture.kind != "absent"
         )
         received = records(case, "RECEIVED ")
-        assert [row[0] for row in received] == session.dispatched
+        assert [row[0] for row in received] == (
+            ["echo hello", "echo keyboard_alive"]
+            if case.case_id == "T1.backspace-del"
+            else ["echo hellx\x08o", "echo keyboard_alive"]
+            if case.case_id == "T1.backspace-bs"
+            else ["echo helo\x1b[D\x1b[D\x1b[Cl", "echo keyboard_alive"]
+            if case.case_id == "T1.cursor-insertion"
+            else ["echo history_one", "\x1b[A", "echo keyboard_alive"]
+            if case.case_id == "T1.history-up"
+            else [
+                "echo history_one",
+                "echo history_two",
+                "\x1b[A\x1b[A\x1b[B",
+                "echo keyboard_alive",
+            ]
+            if case.case_id == "T1.history-navigation"
+            else ["echo history_one", "\x1b[A\x1b[Dtwo", "echo keyboard_alive"]
+            if case.case_id == "T1.history-editing"
+            else session.dispatched
+        )
         assert all(row[1] == session.pid for row in received)
         assert "EARLY INPUT" not in session.output
         if case.suite_id == "T2":
@@ -197,10 +233,16 @@ def test_all_exact_inputs_independent_sessions_and_report(owned_sessions, monkey
         else:
             assert session.reason == "COMPLETED"
         assert_released(case, owned_sessions)
-    assert len(owned_sessions) == 25
-    assert len({case.session.pid for case in cases}) == 25
-    assert len({case.session.working_directory for case in cases}) == 25
-    assert [case.session.exit_status for case in cases[8:13]] == [42, 246, 0, 0, 1]
+    assert len(owned_sessions) == 31
+    assert len({case.session.pid for case in cases}) == 31
+    assert len({case.session.working_directory for case in cases}) == 31
+    assert [case.session.exit_status for case in cases if case.suite_id == "T2"] == [
+        42,
+        246,
+        0,
+        0,
+        1,
+    ]
     prompt = cases[1]
     assert [event.waiting_for for event in prompt.session.interactions] == [
         "cwushell>",
@@ -219,7 +261,9 @@ def test_all_exact_inputs_independent_sessions_and_report(owned_sessions, monkey
     assert records(unset, "INITIAL ")[0]["unset"] == "fixture_value"
     assert unset.controlled_environment["CWUSHELL_TEST_UNSET"] == "fixture_value"
     assert records(unset, "ENVIRONMENT ") == [None]
-    for case in cases[19:22]:
+    for case in cases:
+        if case.case_id not in ("T6.cat", "T6.cp", "T6.rm"):
+            continue
         assert case.fixtures == fixtures.EXTERNAL_FIXTURES
         before = {o.path: o for o in case.file_observations if o.phase == "before"}
         after = {o.path: o for o in case.file_observations if o.phase == "after"}

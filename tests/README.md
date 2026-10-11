@@ -79,8 +79,30 @@ contract without invoking CLI orchestration or student binaries.
 Full CLI/report checks live in `test_runner.py`; run
 `task test -- tests/test_runner.py`. See [workflow verification](../docs/workflow.md)
 for the acceptance mapping and reproducible synthetic commands. These tests
-exercise all 58 cases through the console, module, and checkout script entry
+exercise all 64 cases through the console, module, and checkout script entry
 points, then repeat full runs in-process to measure descriptor release and
 per-case interaction/cleanup bounds. Finite 180/300-second outer timeouts account
-for 58 real PTY launches per run and two runs in the lifecycle check. Test-side
+for 64 real PTY launches per run and two runs in the lifecycle check. Test-side
 finally cleanup retains ownership through recorded process groups.
+
+DEL, BS, cursor, and Up/Down history keyboard action verification lives in `test_keyboard.py` using the executable
+`fixtures/keyboard_shell.py`. Run `task test -- tests/test_keyboard.py` for exact
+incoming byte order, editing/unsupported modes, differing VERASE, bounded partial
+dispatch, shared deadlines, timeout/exit/crash recovery suppression, fresh sessions,
+and equivalent safe raw/cleaned evidence in both report formats. The fixture uses
+termios and byte reads, without readline or student material. Existing full CLI
+checks include all six stable T1 cases in all 64 cases.
+
+History-specific tests verify setup prompt pacing, exact Up/Enter and
+Up/Up/Down/Enter bytes,
+separate interaction output, controlled fresh HOME despite conflicting inherited
+history settings, created history-file evidence, unsupported history, startup
+fallback, timeout/exit/crash and between-key faults, recovery suppression, and
+fresh continuation. No readline installation is used.
+
+The `T1.history-editing` parameter also verifies literal Up/Left/Right, three
+DEL keys, typed `two`, and Enter after setup; the synthetic edited line is
+`echo history_two`. Its dedicated verification checks per-interaction raw redraws,
+history files and reports, differing VERASE/canonical processing, and a partial
+Left-key write leaving later actions and recovery undispatched. Shared history
+fault, deadline, startup, truncation, and fresh-continuation checks include it.
